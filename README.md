@@ -28,14 +28,16 @@ En Manifest V3-extension som läser en LinkedIn-jobbannons, analyserar en Google
 3. Aktivera **Utvecklarläge**.
 4. Välj **Läs in opackat** och välj mappen `cv-adapter-extension`.
 5. Kopiera tilläggets ID från tilläggssidan.
-6. I Google Cloud Console: konfigurera OAuth-samtyckesskärmen, lägg till ditt Google-konto som testanvändare om appen är i testläge och skapa en OAuth-klient av typen **Chrome Extension** med tilläggets ID.
-7. Ersätt `YOUR_CHROME_EXTENSION_OAUTH_CLIENT_ID.apps.googleusercontent.com` i `manifest.json` med klient-ID:t.
+6. I Google Cloud Console: konfigurera OAuth-samtyckesskärmen, lägg till ditt Google-konto som testanvändare om appen är i testläge och kontrollera att OAuth-klienten av typen **Chrome Extension** använder exakt samma tilläggs-ID som visas i `chrome://extensions`.
+7. `oauth2.client_id` är redan ifyllt i projektets `manifest.json`. Byt endast värdet om du har skapat en ny OAuth-klient för samma tilläggs-ID.
 8. Ladda om tillägget på `chrome://extensions`.
 9. Öppna tilläggets **Inställningar**. Ange Gemini API-nyckeln och Google Docs-mallens URL. Spara.
 10. Klicka på **Anslut Google-konto** och godkänn de begärda behörigheterna.
 11. Öppna en enskild jobbannons på LinkedIn, högerklicka och välj **Anpassa till CV**.
 
 Om mappen flyttas och Chrome skapar ett nytt tilläggs-ID behöver OAuth-klienten uppdateras med det nya ID:t.
+
+**Viktigt om `manifest.json` → `key`:** fältet ska innehålla tilläggets Base64-kodade publika nyckel, inte dess 32 tecken långa ID. Det nuvarande värdet i repositoryt ser ut att vara själva ID-strängen. Jag har inte ändrat det utan den ursprungliga publika nyckeln, eftersom en ny nyckel kan ge ett annat tilläggs-ID och därmed kräva en ny OAuth-klient.
 
 ## Behörigheter och integritet
 
