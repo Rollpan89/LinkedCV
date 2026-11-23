@@ -4,7 +4,7 @@
   "name": "CV Anpassaren",
   "version": "0.2.3",
   "description": "Extrahera och analysera jobbkrav från LinkedIn och anpassa en kopia av ditt Google Docs-CV.",
-  "key": "naeboklabmjjldknpbjhjkoaagihog",
+  "key": "naeobklabmjjljdknpbjhjkoaagdihog",
   "permissions": [
     "contextMenus",
     "storage",
