@@ -1,6 +1,12 @@
-# CV Anpassaren – Chrome Extension (v0.1.8)
+# CV Anpassaren – Chrome Extension (v0.1.9)
 
 En Manifest V3-extension som läser en LinkedIn-jobbannons, analyserar en Google Docs-CV-mall med Gemini, visar ändringsförslag och skapar en kopia av mallen i Google Drive.
+
+## v0.1.9 – titelidentifiering i LinkedIns jobbhuvud
+
+- Identifierar även annonstitlar som LinkedIn renderar som fristående textnoder i stället för rubriker eller titel-element.
+- Försöker matcha titeln i direkt anslutning till företagslänken innan flera kandidater klassas som tvetydiga.
+- AMF-regressionstestet använder nu samma typ av textnod som den aktuella annonsen.
 
 ## Viktiga egenskaper
 

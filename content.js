@@ -167,11 +167,10 @@
       .filter(x => x.text.length >= 4 && x.text.length <= 120 && !NON_JOB_HEADINGS.test(x.text));
     const uniqueTexts = [...new Set(normalized.map(x => x.text))];
     if (uniqueTexts.length === 1) return {value:uniqueTexts[0], source:'LinkedIn-jobbhuvudets titel-element', element:normalized.find(x=>x.text===uniqueTexts[0]).el, jobId:getCurrentJobId()};
-    if (uniqueTexts.length > 1) return {value:'', source:'flera titlar i aktivt jobbhuvud', ambiguous:true, jobId:getCurrentJobId()};
 
-    // Some LinkedIn layouts render the role as an ordinary styled div rather
-    // than a heading or a stable title class. In that case, find a short role
-    // label that follows the employer link inside the compact job header.
+    // LinkedIn may render the title as a bare text node (not a heading or
+    // element). Resolve it relative to the active employer link, rather than
+    // ranking every title-like element on the whole job page.
     const scopes = activeJobScopes(roots);
     const depthOf = el => { let depth=0; for (let node=el; node; node=node.parentElement) depth++; return depth; };
     for (const scope of scopes) {
@@ -184,6 +183,27 @@
           const nearby = [...compact.querySelectorAll('*')].filter(usable).map(el => ({el,text:visibleText(el)}))
             .filter(x => x.el !== companyLink && x.text.length >= 5 && x.text.length <= 100 && JOB_TITLE_WORDS.test(x.text) && !NON_JOB_HEADINGS.test(x.text))
             .filter(x => { try { return Boolean(companyLink.compareDocumentPosition(x.el) & Node.DOCUMENT_POSITION_FOLLOWING); } catch (_) { return false; } });
+          const textNodes = [];
+          const walker = document.createTreeWalker(compact, NodeFilter.SHOW_TEXT);
+          let textNode;
+          while ((textNode = walker.nextNode())) {
+            const value = normalize(textNode.nodeValue || '');
+            const parent = textNode.parentElement;
+            if (!parent || parent.closest('a,button,[aria-hidden="true"]') || value.length < 5 || value.length > 100) continue;
+            if (!JOB_TITLE_WORDS.test(value) || NON_JOB_HEADINGS.test(value)) continue;
+            try {
+              if (companyLink.compareDocumentPosition(textNode) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                textNodes.push({el:parent,text:value,node:textNode});
+              }
+            } catch (_) {}
+          }
+          // A bare text node is stronger evidence than broad descendant text,
+          // which can include nested metadata and duplicate labels.
+          const textNodeValues = [...new Set(textNodes.map(x=>x.text))];
+          if (textNodeValues.length === 1) {
+            const match = textNodes.find(x=>x.text===textNodeValues[0]);
+            return {value:match.text, source:'titeltextnod i aktivt jobbhuvud efter företagslänken', element:match.el, jobId:getCurrentJobId()};
+          }
           const texts = [...new Set(nearby.map(x=>x.text))];
           if (texts.length === 1) {
             const match = nearby.filter(x=>x.text===texts[0]).sort((a,b)=>depthOf(b.el)-depthOf(a.el))[0];
@@ -192,6 +212,7 @@
         }
       }
     }
+    if (uniqueTexts.length > 1) return {value:'', source:'flera titlar i aktivt jobbhuvud', ambiguous:true, jobId:getCurrentJobId()};
     return null;
   }
   function findJobTitle(posting, roots) {
