@@ -287,16 +287,19 @@
     return score;
   }
   function extractDescription(posting, roots, scopedSection = null) {
-    const candidates = candidateDescriptionNodes(roots).map(el => ({el,value:visibleText(el),score:scoreDescription(el,roots)}))
-      .filter(x => Number.isFinite(x.score)).sort((a,b)=>b.score-a.score);
     if (scopedSection) {
       const raw = visibleText(scopedSection);
       const lines = raw.split(/\n+/);
       const headingIndex = lines.findIndex(line => /^(?:om jobbet|about the job|job description|arbetsbeskrivning)$/i.test(normalize(line)));
       const scopedText = normalize((headingIndex >= 0 ? lines.slice(headingIndex + 1) : lines).join('\n')
         .replace(/(?:…|\.{2,})\s*(?:mer|more)\s*$/i, ''));
-      if (scopedText.length >= 180) return {value:scopedText, source:'LinkedIn-sektionen "Om jobbet"', score:30, candidates:candidates.length, scoped:true};
+      if (scopedText.length >= 180) {
+        const mayBeIncomplete = [...scopedSection.querySelectorAll('button,[role="button"]')].some(button => isVisible(button) && /(?:show more|see more|visa mer|visa fler|read more|läs mer|…\s*mer)/i.test(normalize(`${visibleText(button)} ${button.getAttribute('aria-label') || ''}`)));
+        return {value:scopedText, source:'LinkedIn-sektionen "Om jobbet"', score:30, candidates:0, scoped:true, mayBeIncomplete};
+      }
     }
+    const candidates = candidateDescriptionNodes(roots).map(el => ({el,value:visibleText(el),score:scoreDescription(el,roots)}))
+      .filter(x => Number.isFinite(x.score)).sort((a,b)=>b.score-a.score);
     const best = candidates[0];
     const structured = htmlText(posting?.description || '');
     if (structured.length >= 180 && (!best || structured.length >= best.value.length * 0.78)) return {value:structured, source:'JSON-LD JobPosting.description', score:20, candidates:candidates.length, scoped:false};

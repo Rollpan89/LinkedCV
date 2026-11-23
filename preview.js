@@ -1,7 +1,7 @@
 import { extractDocId, geminiGenerate, getDoc, flattenDocContent, locateSections, copyTemplate, updateCopiedDoc, normalizeForCompare } from "./shared.js";
 
 const $ = id => document.getElementById(id);
-let state = { job: null, settings: null, originalDoc: null, sections: [], proposals: [], jobAnalysis: [], templateId: null };
+let state = { job: null, originalDoc: null, sections: [], proposals: [], jobAnalysis: [], templateId: null };
 
 function setProgress(percent, title, detail) {
   const value = Math.max(0, Math.min(100, percent));
@@ -56,7 +56,6 @@ async function init() {
     if (!settings.apiKey) throw new Error("Lägg till din Gemini API-nyckel i tilläggets inställningar först.");
     if (!settings.templateUrl) throw new Error("Ange länken till din Google Docs-mall i inställningarna.");
     state.job = pendingJob;
-    state.settings = settings;
     setProgress(20, "Annons och inställningar klara", "Hämtar CV-mallen från Google Docs. Inloggning kan behövas.");
     state.templateId = extractDocId(settings.templateUrl);
     $("jobTitle").textContent = pendingJob.title || "Jobbannons – titel kunde inte identifieras";
@@ -117,7 +116,7 @@ $("create").addEventListener("click", async () => {
     const url = copy.webViewLink || `https://docs.google.com/document/d/${copy.id}/edit`;
     const entry = { id: copy.id, url, role, company, createdAt: new Date().toISOString(), jobUrl: state.job.url };
     const { history = [] } = await chrome.storage.local.get("history");
-    await chrome.storage.local.set({ history: [entry, ...history].slice(0, 100), latest: entry });
+    await chrome.storage.local.set({ history: [entry, ...history].slice(0, 100) });
     chrome.runtime.sendMessage({ type: "CV_CREATED" }).catch(() => {});
     $("create").textContent = "CV skapat";
     $("create").disabled = true;
