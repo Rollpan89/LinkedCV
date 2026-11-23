@@ -39,7 +39,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     await chrome.storage.session.set({ pendingJob: {
       text: String(response.text || "").slice(0, 30000), description: description.slice(0, 26000),
       title: response.title, company: response.company || "", location: response.location || "",
-      employmentType: response.employmentType || "", diagnostics, url: tab.url, capturedAt: new Date().toISOString()
+      employmentType: response.employmentType || "", competencies: response.competencies || [],
+      jobSections: response.jobSections || {}, diagnostics, url: tab.url, capturedAt: new Date().toISOString()
     }});
     await chrome.tabs.create({ url: chrome.runtime.getURL("preview.html") });
   } catch (error) {
@@ -52,5 +53,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "CV_CREATED") {
     chrome.action.setBadgeText({ text: "✓" }); chrome.action.setBadgeBackgroundColor({ color: "#137a50" });
     sendResponse({ ok: true }); return;
+  }
+  if (message?.type === "GET_LAST_ERROR") {
+    chrome.storage.session.get("lastError").then(({ lastError }) => { sendResponse({ error: lastError || "" }); chrome.storage.session.remove("lastError"); });
+    return true;
   }
 });

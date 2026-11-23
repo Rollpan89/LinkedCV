@@ -6,7 +6,7 @@ async function load() {
   $("model").value = settings.model || "gemini-3.5-flash-lite";
 }
 $("save").addEventListener("click", async () => {
-  const settings = { templateUrl: $("templateUrl").value.trim(), apiKey: $("apiKey").value.trim(), model: $("model").value };
+  const settings = { templateUrl: $("templateUrl").value.trim(), apiKey: $("apiKey").value.trim(), model: $("model").value, language: "sv" };
   if (settings.templateUrl && !/docs\.google\.com\/document\/d\//.test(settings.templateUrl)) {
     $("saveStatus").textContent = "Ange en giltig Google Docs-länk."; return;
   }

@@ -1,4 +1,4 @@
-# CV Anpassaren – Chrome Extension (v0.2.1)
+# CV Anpassaren – Chrome Extension (v0.1.9)
 
 En Manifest V3-extension som läser en LinkedIn-jobbannons, analyserar en Google Docs-CV-mall med Gemini, visar ändringsförslag och skapar en kopia av mallen i Google Drive.
 
@@ -146,12 +146,3 @@ LinkedIn ändrar sin DOM löpande och kan visa olika innehåll beroende på inlo
 - Gemini identifierar tekniska krav, erfarenhet, utbildning, personliga egenskaper, ansvar och meriterande önskemål.
 - Förhandsgranskningen visar kravprofilen med belägg från annonsen.
 - Google Docs-mallflöde, manifestnyckel och OAuth-klient lämnas oförändrade.
-
-
-## 0.2.1 – förenklad kodbas
-
-- Kravidentifiering och CV-matchning utförs samlat av Gemini utifrån hela annonstexten och hela CV:t.
-- Den äldre lexikonbaserade teknikextraktionen och regelbaserade annonsklassificeringen har tagits bort.
-- Extraktionsmotorn ansvarar enbart för att samla in annonsinnehåll och diagnostik.
-- Oanvända hjälpfunktioner, exports, meddelandehantering och CSS-regler har tagits bort.
-- Ett anrop till en odefinierad företagsfunktion har tagits bort.
