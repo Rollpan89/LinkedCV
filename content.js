@@ -168,24 +168,31 @@
     const uniqueTexts = [...new Set(normalized.map(x => x.text))];
     if (uniqueTexts.length === 1) return {value:uniqueTexts[0], source:'LinkedIn-jobbhuvudets titel-element', element:normalized.find(x=>x.text===uniqueTexts[0]).el, jobId:getCurrentJobId()};
     if (uniqueTexts.length > 1) return {value:'', source:'flera titlar i aktivt jobbhuvud', ambiguous:true, jobId:getCurrentJobId()};
-    return null;
-  }
-  function findCompanyNearJobLink(jobLink) {
-    if (!jobLink) return '';
-    let scope = jobLink;
-    for (let depth = 0; scope && depth < 6; depth++, scope = scope.parentElement) {
-      const text = visibleText(scope);
-      if (text.length > 1000) continue;
-      const links = [...scope.querySelectorAll('a[href*="/company/"]')].filter(usable);
-      const names = links.map(a => normalize([
-        visibleText(a), a.getAttribute('aria-label') || '', a.querySelector('img')?.getAttribute('alt') || ''
-      ].join(' ')).replace(/^(?:företag|company)[, :.-]*/i, '').replace(/(?:företagslogotyp för|company logo for).*/i, '').replace(/[.,]$/,'').trim())
-        .filter(n => n.length >= 2 && n.length <= 100 && !NON_JOB_HEADINGS.test(n));
-      const uniqueNames = [...new Set(names)];
-      if (uniqueNames.length === 1) return uniqueNames[0];
-      if (uniqueNames.length > 1) return '';
+
+    // Some LinkedIn layouts render the role as an ordinary styled div rather
+    // than a heading or a stable title class. In that case, find a short role
+    // label that follows the employer link inside the compact job header.
+    const scopes = activeJobScopes(roots);
+    const depthOf = el => { let depth=0; for (let node=el; node; node=node.parentElement) depth++; return depth; };
+    for (const scope of scopes) {
+      const companyLinks = [...scope.querySelectorAll('a[href*="/company/"]')].filter(usable);
+      for (const companyLink of companyLinks) {
+        let compact = companyLink.parentElement;
+        for (let depth=0; compact && depth<6; depth++, compact=compact.parentElement) {
+          const compactText = visibleText(compact);
+          if (compactText.length > 1200) continue;
+          const nearby = [...compact.querySelectorAll('*')].filter(usable).map(el => ({el,text:visibleText(el)}))
+            .filter(x => x.el !== companyLink && x.text.length >= 5 && x.text.length <= 100 && JOB_TITLE_WORDS.test(x.text) && !NON_JOB_HEADINGS.test(x.text))
+            .filter(x => { try { return Boolean(companyLink.compareDocumentPosition(x.el) & Node.DOCUMENT_POSITION_FOLLOWING); } catch (_) { return false; } });
+          const texts = [...new Set(nearby.map(x=>x.text))];
+          if (texts.length === 1) {
+            const match = nearby.filter(x=>x.text===texts[0]).sort((a,b)=>depthOf(b.el)-depthOf(a.el))[0];
+            return {value:match.text, source:'titeltext i aktivt jobbhuvud efter företagslänken', element:match.el, jobId:getCurrentJobId()};
+          }
+        }
+      }
     }
-    return '';
+    return null;
   }
   function findJobTitle(posting, roots) {
     const exactLink = findJobTitleByJobId(roots);
