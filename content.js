@@ -56,14 +56,17 @@
       hardTimer = setTimeout(finish, timeout); reset();
     });
   }
-  function expandRelevantSections() {
-    const controls = [...document.querySelectorAll('button,[role="button"]')].filter(usable);
+  function expandRelevantSections(scope) {
+    if (!scope) return 0;
+    const controls = [...scope.querySelectorAll('button,[role="button"]')].filter(isVisible);
+    let expanded = 0;
     controls.forEach(button => {
       const label = normalize(`${visibleText(button)} ${button.getAttribute('aria-label') || ''}`).toLowerCase();
-      if (/show more|see more|visa mer|visa fler|read more|läs mer/.test(label) && !/show less|see less|visa mindre|läs mindre/.test(label)) {
-        try { button.click(); } catch (_) {}
+      if (/(?:show more|see more|visa mer|visa fler|read more|läs mer|…\s*mer|\.\.\.+\s*mer|\.\.\.+\s*more)/i.test(label) && !/show less|see less|visa mindre|läs mindre/i.test(label)) {
+        try { button.click(); expanded++; } catch (_) {}
       }
     });
+    return expanded;
   }
   function postingLocation(posting) {
     const loc = posting?.jobLocation;
@@ -129,9 +132,18 @@
   }
   function getCurrentJobId() {
     const url = new URL(location.href);
-    return url.searchParams.get('currentJobId') || url.pathname.match(/\/jobs\/view\/(\d+)/)?.[1] || '';
+    const pathId = url.pathname.match(/\/jobs\/view\/(\d+)/)?.[1] || '';
+    return pathId || url.searchParams.get('currentJobId') || '';
   }
-  function findJobTitleByJobId() {
+  function activeJobScopes(roots = []) {
+    const id = getCurrentJobId();
+    const exact = id ? [...document.querySelectorAll(`[data-job-id="${id}"]`)].filter(usable) : [];
+    const known = [...document.querySelectorAll('.jobs-search__job-details--container,.jobs-search__job-details,.job-details-jobs-unified-top-card,.jobs-unified-top-card')].filter(usable);
+    const main = [...document.querySelectorAll('main,[role="main"]')].filter(usable);
+    return unique([...exact, ...known, ...main, ...roots]).filter(el => visibleText(el).length > 100)
+      .sort((a,b) => visibleText(a).length - visibleText(b).length);
+  }
+  function findJobTitleByJobId(roots = []) {
     const id = getCurrentJobId();
     if (!id) return null;
     const links = [...document.querySelectorAll('a[href*="/jobs/view/"]')].filter(usable).map(el => {
@@ -140,8 +152,23 @@
       return { el, hrefId, text: visibleText(el) };
     }).filter(x => x.hrefId === id && x.text.length >= 4 && x.text.length <= 120 && !NON_JOB_HEADINGS.test(x.text));
     const uniqueTexts = [...new Set(links.map(x => x.text))];
-    if (uniqueTexts.length !== 1) return { ambiguous: uniqueTexts.length > 1, count: uniqueTexts.length };
-    return { value: uniqueTexts[0], source: `annonslänk med exakt jobb-ID ${id}`, element: links.find(x => x.text === uniqueTexts[0]).el, jobId: id };
+    if (uniqueTexts.length === 1) return { value: uniqueTexts[0], source: `annonslänk med exakt jobb-ID ${id}`, element: links.find(x => x.text === uniqueTexts[0]).el, jobId: id };
+    if (uniqueTexts.length > 1) return { value:'', source:'flera möjliga titlar för samma jobb-ID', ambiguous:true, jobId:id };
+    return null;
+  }
+  function findTitleInActiveHeader(roots = []) {
+    const selectors = '[data-test-job-title],[data-job-title],.job-details-jobs-unified-top-card__job-title,.job-details-jobs-unified-top-card__job-title-link,.jobs-unified-top-card__job-title,.jobs-details-top-card__job-title';
+    const candidates = [];
+    activeJobScopes(roots).forEach(scope => {
+      if (scope.matches?.(selectors)) candidates.push(scope);
+      candidates.push(...scope.querySelectorAll(selectors));
+    });
+    const normalized = unique(candidates).filter(usable).map(el => ({el,text:visibleText(el)}))
+      .filter(x => x.text.length >= 4 && x.text.length <= 120 && !NON_JOB_HEADINGS.test(x.text));
+    const uniqueTexts = [...new Set(normalized.map(x => x.text))];
+    if (uniqueTexts.length === 1) return {value:uniqueTexts[0], source:'LinkedIn-jobbhuvudets titel-element', element:normalized.find(x=>x.text===uniqueTexts[0]).el, jobId:getCurrentJobId()};
+    if (uniqueTexts.length > 1) return {value:'', source:'flera titlar i aktivt jobbhuvud', ambiguous:true, jobId:getCurrentJobId()};
+    return null;
   }
   function findCompanyNearJobLink(jobLink) {
     if (!jobLink) return '';
@@ -161,25 +188,24 @@
     return '';
   }
   function findJobTitle(posting, roots) {
-    const exactLink = findJobTitleByJobId();
-    if (exactLink?.value) return exactLink;
-    if (exactLink?.ambiguous) return { value:'', source:'flera möjliga titlar för samma jobb-ID', ambiguous:true };
+    const exactLink = findJobTitleByJobId(roots);
+    if (exactLink?.value || exactLink?.ambiguous) return exactLink;
     if (posting?.title) return {value:normalize(posting.title), source:'JSON-LD'};
+    const headerTitle = findTitleInActiveHeader(roots);
+    if (headerTitle?.value || headerTitle?.ambiguous) return headerTitle;
     const metaTitles = titleMetaCandidates();
     for (const raw of metaTitles) {
       const candidate = parseMetaJobTitle(raw);
       if (candidate && candidate.length >= 5 && candidate.length <= 100 && !NON_JOB_HEADINGS.test(candidate)) {
-        // Prefer a plausible document/OG title over arbitrary section headings.
-        if (JOB_TITLE_WORDS.test(candidate) || candidate.split(' ').length <= 8) {
-          return {value:candidate, source:'Open Graph / dokumenttitel'};
-        }
+        if (JOB_TITLE_WORDS.test(candidate) || candidate.split(' ').length <= 8) return {value:candidate, source:'Open Graph / dokumenttitel'};
       }
     }
-    const headings = headingCandidates();
-    const root = roots.slice().sort((a,b) => visibleText(a).length-visibleText(b).length)[0];
+    const scopes = activeJobScopes(roots);
+    const headings = headingCandidates().filter(h => scopes.some(scope => scope === h.el || scope.contains(h.el)));
+    const root = scopes[0] || roots.slice().sort((a,b) => visibleText(a).length-visibleText(b).length)[0];
     const ranked = headings.map((h,i) => ({...h, score:scoreTitle(h,root,i,headings)})).sort((a,b)=>b.score-a.score);
     const best = ranked[0];
-    if (best && best.score >= 12) return {value:best.text, source:'semantisk rubrik med jobbkontekst'};
+    if (best && best.score >= 12) return {value:best.text, source:'semantisk rubrik i aktiv annons', element:best.el};
     return {value:'', source:'saknas eller osäker'};
   }
   function candidateDescriptionNodes(roots) {
@@ -198,6 +224,20 @@
       parts.push(...hs);
     }
     return parts.join(' ');
+  }
+  function findJobDescriptionSection(roots = []) {
+    const headings = [...document.querySelectorAll('h1,h2,h3,h4,[role="heading"]')]
+      .filter(usable).filter(el => /^(?:om jobbet|about the job|job description|arbetsbeskrivning)$/i.test(visibleText(el)));
+    const scopes = activeJobScopes(roots);
+    for (const heading of headings) {
+      if (scopes.length && !scopes.some(scope => scope === heading || scope.contains(heading))) continue;
+      let node = heading;
+      for (let depth = 0; node && depth < 7; depth++, node = node.parentElement) {
+        const value = visibleText(node);
+        if (value.length >= 180 && value.length <= 22000) return node;
+      }
+    }
+    return null;
   }
   function scoreDescription(el, roots) {
     const value = visibleText(el);
@@ -220,20 +260,26 @@
     if (value.length > 18000 && listItems > 35) score -= 8;
     return score;
   }
-  function extractDescription(posting, roots) {
+  function extractDescription(posting, roots, scopedSection = null) {
     const candidates = candidateDescriptionNodes(roots).map(el => ({el,value:visibleText(el),score:scoreDescription(el,roots)}))
       .filter(x => Number.isFinite(x.score)).sort((a,b)=>b.score-a.score);
+    if (scopedSection) {
+      const raw = visibleText(scopedSection);
+      const lines = raw.split(/\n+/);
+      const headingIndex = lines.findIndex(line => /^(?:om jobbet|about the job|job description|arbetsbeskrivning)$/i.test(normalize(line)));
+      const scopedText = normalize((headingIndex >= 0 ? lines.slice(headingIndex + 1) : lines).join('\n')
+        .replace(/(?:…|\.{2,})\s*(?:mer|more)\s*$/i, ''));
+      if (scopedText.length >= 180) return {value:scopedText, source:'LinkedIn-sektionen "Om jobbet"', score:30, candidates:candidates.length, scoped:true};
+    }
     const best = candidates[0];
     const structured = htmlText(posting?.description || '');
-    if (structured.length >= 180 && (!best || structured.length >= best.value.length * 0.78)) {
-      return {value:structured, source:'JSON-LD JobPosting.description', score:20, candidates:candidates.length};
-    }
-    if (best) return {value:best.value, source:'semantisk DOM-rangordning', score:Math.round(best.score*10)/10, candidates:candidates.length};
-    return {value:structured, source:structured?'JSON-LD JobPosting.description':'saknas', score:structured.length>=180?20:0, candidates:candidates.length};
+    if (structured.length >= 180 && (!best || structured.length >= best.value.length * 0.78)) return {value:structured, source:'JSON-LD JobPosting.description', score:20, candidates:candidates.length, scoped:false};
+    if (best) return {value:best.value, source:'semantisk DOM-rangordning', score:Math.round(best.score*10)/10, candidates:candidates.length, scoped:false};
+    return {value:structured, source:structured?'JSON-LD JobPosting.description':'saknas', score:structured.length>=180?20:0, candidates:candidates.length, scoped:false};
   }
-  function nearbyMetadata(title, roots, posting) {
+  function nearbyMetadata(title, roots, posting, titleElement = null) {
     const result = {company:orgName(posting), location:postingLocation(posting), employmentType:normalize((Array.isArray(posting?.employmentType)?posting.employmentType:[posting?.employmentType]).filter(Boolean).join(', '))};
-    const titleNode = headingCandidates().find(h => h.text === title)?.el;
+    const titleNode = titleElement || headingCandidates().find(h => h.text === title)?.el;
     if (titleNode) {
       // Inspect the compact job-header neighborhood, especially preceding siblings:
       // LinkedIn places the employer immediately above the role title in this layout.
@@ -363,14 +409,18 @@
 
   async function extractJob() {
     await waitForStableDom(3200,450);
-    expandRelevantSections();
-    await waitForStableDom(2200,450);
+    let roots = semanticRoots();
+    let descriptionScope = findJobDescriptionSection(roots);
+    if (descriptionScope && expandRelevantSections(descriptionScope) > 0) {
+      await waitForStableDom(2200,450);
+      roots = semanticRoots();
+      descriptionScope = findJobDescriptionSection(roots);
+    }
     const posting = parseStructuredJobs();
-    const roots = semanticRoots();
     const titleInfo = findJobTitle(posting, roots);
-    const meta = nearbyMetadata(titleInfo.value, roots, posting);
+    const meta = nearbyMetadata(titleInfo.value, roots, posting, titleInfo.element || null);
     if (titleInfo.element) { const headerCompany = findCompanyNearJobLink(titleInfo.element); if (headerCompany) meta.company = headerCompany; }
-    const desc = extractDescription(posting, roots);
+    const desc = extractDescription(posting, roots, descriptionScope);
     const description = normalize(desc.value);
     const competencies = extractCompetencies(description);
     const jobSections = classifyJobSections(description);
@@ -380,12 +430,13 @@
     return {
       title:titleInfo.value, company:meta.company, location:meta.location, employmentType:meta.employmentType,
       description, competencies, jobSections, text,
-      diagnostics:{engine:'semantic-content-v4', jobId:getCurrentJobId(), titleSource:titleInfo.source, titleAmbiguous:Boolean(titleInfo.ambiguous), descriptionSource:desc.source, descriptionLength:description.length,
-        descriptionScore:desc.score, candidateCount:desc.candidates, competencyCount:competencies.length,
+      diagnostics:{engine:'semantic-content-v5', jobId:getCurrentJobId(), titleSource:titleInfo.source, titleAmbiguous:Boolean(titleInfo.ambiguous), descriptionSource:desc.source, descriptionLength:description.length,
+        descriptionScore:desc.score, descriptionScoped:Boolean(desc.scoped), descriptionScopeFound:Boolean(descriptionScope), candidateCount:desc.candidates, competencyCount:competencies.length,
         titleFound:Boolean(titleInfo.value), companyFound:Boolean(meta.company), locationFound:Boolean(meta.location),
         jsonLdFound:Boolean(posting), confidence, roots:summarizeRoots(roots), capturedAt:new Date().toISOString()}
     };
   }
+
 
   chrome.runtime.onMessage.addListener((message,_sender,sendResponse)=>{
     if (message?.type === 'EXTRACT_JOB_AD') {

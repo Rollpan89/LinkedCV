@@ -1,4 +1,4 @@
-# CV Anpassaren – Chrome Extension (v0.1.4)
+# CV Anpassaren – Chrome Extension (v0.1.8)
 
 En Manifest V3-extension som läser en LinkedIn-jobbannons, analyserar en Google Docs-CV-mall med Gemini, visar ändringsförslag och skapar en kopia av mallen i Google Drive.
 
@@ -55,6 +55,20 @@ Gemini-nyckeln lagras i `chrome.storage.local` i den aktuella Chrome-profilen. D
 Google Docs API behåller all dokumentstruktur och formattering utanför de redigerade intervallen. När innehåll inne i en taggad sektion ersätts infogas den nya texten vid sektionens första textposition och ärver i normalfallet formatteringen därifrån. Om en redigeringssektion innehåller flera olika teckenformat kan en ersättning därför inte garantera att varje ny teckendel får samma blandade formatering. För bästa resultat: håll varje redigeringssektion i ett konsekvent textformat.
 
 Taggar som används för redigeringssektioner ska vara vanlig dokumenttext, inte text inuti bilder eller teckningar. Undvik nästlade taggar och använd unika taggnamn per sektion.
+
+## Extraktionsmotor i v0.1.8
+
+- Jobb-ID från `/jobs/view/{id}` prioriteras framför `currentJobId` i query-parametrar. På LinkedIns sökvy används `currentJobId` som fallback.
+- Titel hämtas från det aktiva jobbhuvudets titel-element när en annonslänk med exakt jobb-ID saknas. Kandidater avgränsas till den aktiva annonsens detaljvy.
+- Företagslänken i samma jobbhuvud används för att koppla företagsnamnet till rätt annons.
+- Extraktionen letar efter sektionen `Om jobbet` / `About the job` och använder den som primär beskrivningskälla.
+- Endast expanderingsknappar inuti den identifierade jobbannonsbeskrivningen klickas. Företagsprofil och rekommenderade jobb lämnas orörda.
+- Korrigerad whitespace-normalisering för radbrytningar, tabbtecken och hårda mellanslag.
+- Diagnostiken skiljer nu mellan en identifierad jobbsektion och generell semantisk DOM-rangordning.
+
+### AMF-regressionstest
+
+Öppna `tests/amf-regression.html?currentJobId=4492556919` i Chrome. Testfixturen laddar den riktiga `content.js`-extraktionsmotorn och kontrollerar jobb-ID, titeln `Digital designer`, företaget `AMF`, att beskrivningen hämtas från `Om jobbet`, att jobbtextens `Visa mer` expanderas och att motsvarande knapp i företagsprofilen inte klickas. Testet är ett manuellt webbläsartest och kräver ingen extern testdependency.
 
 ## Extraktionsmotor i v0.1.4
 
