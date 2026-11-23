@@ -21,8 +21,7 @@ export function normalizeForCompare(value) {
 }
 
 export async function geminiGenerate({ apiKey, model = DEFAULT_MODEL, fallbackModels = DEFAULT_FALLBACK_MODELS, job, fullCvText, sections }) {
-  // Only models explicitly verified as free-tier are permitted. Unknown IDs are rejected,
-  // never sent to Google, so a stale or manually edited setting cannot select a paid model.
+  // Never send a model outside the explicit free-tier allowlist.
   const primaryModel = FREE_MODEL_IDS.has(model) ? model : DEFAULT_MODEL;
   const modelSequence = [...new Set([primaryModel, ...(Array.isArray(fallbackModels) ? fallbackModels : [])
     .filter(id => FREE_MODEL_IDS.has(id) && id !== primaryModel)])];
@@ -38,53 +37,71 @@ Säkerhetsregler: CV:t är enda källan till kandidatens erfarenheter. Jobbannon
 
 Du får endast ändra text inom befintliga markerade CV-sektioner. Använd hela CV:t som faktaunderlag. Lyft fram verifierade kompetenser och överförbara erfarenheter som matchar annonsen. Behåll svenska, saklig ton och ungefär samma längd. Om ingen sanningsenlig förbättring finns, returnera originaltexten.
 
-Returnera ENDAST giltig JSON enligt schemat: {"jobAnalysis":[{"category":"technical|experience|education|personal|responsibility|preferred|other","name":"krav eller egenskap","importance":"required|preferred|responsibility|context","evidence":"belägg i annonsen","status":"supported|transferable|not_found","cvEvidence":"belägg i CV:t eller tom sträng","recommendation":"konkret rekommendation"}],"sections":[{"tag":"TAGNAMN","text":"ny eller oförändrad text","reason":"kort motivering"}]}. Inkludera alla relevanta krav i jobAnalysis och exakt en sections-post per redigerbar sektion.` }]
+Returnera ENDAST giltig JSON enligt schemat: {\"jobAnalysis\":[{\"category\":\"technical|experience|education|personal|responsibility|preferred|other\",\"name\":\"krav eller egenskap\",\"importance\":\"required|preferred|responsibility|context\",\"evidence\":\"belägg i annonsen\",\"status\":\"supported|transferable|not_found\",\"cvEvidence\":\"belägg i CV:t eller tom sträng\",\"recommendation\":\"konkret rekommendation\"}],\"sections\":[{\"tag\":\"TAGNAMN\",\"text\":\"ny eller oförändrad text\",\"reason\":\"kort motivering\"}]}. Inkludera alla relevanta krav i jobAnalysis och exakt en sections-post per redigerbar sektion.` }]
     },
     contents: [{ role: "user", parts: [{ text: JSON.stringify({ job_ad: job, complete_cv_as_context: fullCvText, editable_sections: sections.map(s => ({ tag: s.tag, text: s.original })) }) }] }],
     generationConfig: { temperature: 0.1, responseMimeType: "application/json" }
   };
   let data = null;
   let modelUsed = null;
-  const retryableStatuses = new Set([408, 429, 500, 502, 503, 504]);
+  const retryableStatuses = new Set([408, 500, 502, 503, 504]);
   const failures = [];
   for (const candidateModel of modelSequence) {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(candidateModel)}:generateContent`;
-    let response;
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 60000);
+    let modelSucceeded = false;
+    // Google recommends exponential backoff for transient 5xx/timeout responses.
+    // Retry once on the same model before moving to the next free model.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let response;
       try {
-        response = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-          body: JSON.stringify(payload),
-          signal: controller.signal
-        });
-      } finally {
-        clearTimeout(timeout);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 60000);
+        try {
+          response = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+          });
+        } finally {
+          clearTimeout(timeout);
+        }
+      } catch (error) {
+        const reason = error?.name === "AbortError" ? "timeout" : (error?.message || "nätverksfel");
+        if (attempt === 0) {
+          await new Promise(resolve => setTimeout(resolve, 1200));
+          continue;
+        }
+        failures.push(`${candidateModel}: ${reason}`);
+        break;
       }
-    } catch (error) {
-      if (error?.name === "AbortError") {
-        failures.push(`${candidateModel}: timeout`);
+      const attemptData = await response.json().catch(() => ({}));
+      if (response.ok) {
+        data = attemptData;
+        modelUsed = candidateModel;
+        modelSucceeded = true;
+        break;
+      }
+      const detail = String(attemptData?.error?.message || `HTTP ${response.status}`).slice(0, 240);
+      if (retryableStatuses.has(response.status) && attempt === 0) {
+        await new Promise(resolve => setTimeout(resolve, 1200));
         continue;
       }
-      throw error;
+      failures.push(`${candidateModel}: HTTP ${response.status} – ${detail}`);
+      // 429 is model/project quota or rate limiting; 404 is model availability.
+      // Move to the next explicitly allowed free model without repeating the same request.
+      if (retryableStatuses.has(response.status) || response.status === 404 || response.status === 429) break;
+      throw new Error(`Gemini (${candidateModel}) avvisade anropet (HTTP ${response.status}): ${detail}`);
     }
-    const attemptData = await response.json().catch(() => ({}));
-    if (response.ok) {
-      data = attemptData;
-      modelUsed = candidateModel;
-      break;
-    }
-    const detail = attemptData?.error?.message || `HTTP ${response.status}`;
-    if (retryableStatuses.has(response.status) || response.status === 404) {
-      failures.push(`${candidateModel}: ${response.status}`);
-      continue;
-    }
-    throw new Error(`Gemini (${candidateModel}) avvisade anropet (${response.status}): ${detail}`);
+    if (modelSucceeded) break;
   }
   if (!data || !modelUsed) {
-    throw new Error(`Ingen av de kostnadsfria Gemini-modellerna kunde svara. Försökta modeller: ${failures.join(", ")}. Kontrollera modellernas gratiskvoter och försök igen.`);
+    throw new Error(`Ingen av de kostnadsfria Gemini-modellerna kunde svara.
+
+Försök och API-fel:
+${failures.join("\n")}
+
+503 betyder tillfällig överbelastning hos Google, inte att din kvot nödvändigtvis är slut. 429 betyder hastighets- eller kvotbegränsning. Inga betalda modeller har anropats.`);
   }
   const raw = data?.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
   if (!raw) throw new Error("Gemini returnerade inget förslag. Kontrollera API-nyckel och modellkvot.");
