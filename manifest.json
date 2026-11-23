@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "minimum_chrome_version": "105",
+  "name": "CV Anpassaren",
+  "version": "0.1.7",
+  "description": "Anpassa en kopia av ditt Google Docs-CV till en LinkedIn-jobbannons.",
+  "key": "naeobklabmjjljdknpbjhjkoaagdihog",
+  "permissions": [
+    "contextMenus",
+    "storage",
+    "identity",
+    "tabs",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://www.googleapis.com/*",
+    "https://docs.googleapis.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.linkedin.com/jobs/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "CV Anpassaren"
+  },
+  "options_page": "options.html",
+  "oauth2": {
+    "client_id": "486844336690-hdi4qv0n5e3lrh24tdgl82mapehoekln.apps.googleusercontent.com", 
+    "scopes": [ 
+      "https://www.googleapis.com/auth/documents",
+      "https://www.googleapis.com/auth/drive"
+    ]
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

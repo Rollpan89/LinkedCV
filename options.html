@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Inställningar – CV Anpassaren</title><link rel="stylesheet" href="styles.css">
+</head>
+<body class="page">
+  <main class="settings-wrap">
+    <header class="brand"><div class="brand-mark">CV</div><div><h1>CV Anpassaren</h1><p>Inställningar</p></div></header>
+    <section class="panel">
+      <h2>Google Docs-mall</h2>
+      <label for="templateUrl">Länk till CV-mallen</label>
+      <input id="templateUrl" type="url" placeholder="https://docs.google.com/document/d/.../edit">
+      <p class="hint">Originalmallen ändras aldrig. Varje CV skapas som en separat kopia i Google Drive.</p>
+      <div class="row"><button id="connectGoogle" class="secondary">Anslut Google-konto</button><span id="googleStatus" class="status">Inte kontrollerad</span></div>
+    </section>
+    <section class="panel">
+      <h2>Gemini</h2>
+      <label for="apiKey">Gemini API-nyckel</label>
+      <input id="apiKey" type="password" autocomplete="off" placeholder="Klistra in din API-nyckel">
+      <p class="hint">Nyckeln lagras lokalt i Chrome. Använd en personlig nyckel och dela inte tilläggsmappen med andra.</p>
+      <label for="model">Modell</label>
+      <select id="model"><option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option></select>
+    </section>
+    <section class="panel">
+      <h2>Regler för CV-anpassning</h2>
+      <ul class="rules">
+        <li>Endast text mellan matchande [TAG] och [/TAG] får ändras.</li>
+        <li>Text som redan passar annonsen lämnas oförändrad.</li>
+        <li>AI:n får inte hitta på kompetenser eller erfarenheter.</li>
+        <li>Alla taggar tas bort i den skapade kopian, även om innehållet inte ändras.</li>
+        <li>Språket är svenska.</li>
+      </ul>
+    </section>
+    <div class="actions"><button id="save" class="primary">Spara inställningar</button><span id="saveStatus" class="status" aria-live="polite"></span></div>
+    <p class="footnote">Historiken lagras lokalt i den här Chrome-profilen. Google Docs-dokumenten lagras i ditt Google Drive.</p>
+  </main>
+  <script src="options.js" type="module"></script>
+</body>
+</html>
