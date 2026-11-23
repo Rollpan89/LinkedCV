@@ -1,11 +1,11 @@
-# CV Anpassaren – Chrome Extension (v0.1.4)
+# CV Anpassaren – Chrome Extension (v0.1.8)
 
 En Manifest V3-extension som läser en LinkedIn-jobbannons, analyserar en Google Docs-CV-mall med Gemini, visar ändringsförslag och skapar en kopia av mallen i Google Drive.
 
 ## Viktiga egenskaper
 
 - Högerklicksmenyn **Anpassa till CV** visas på `linkedin.com/jobs/*`.
-- Mallens dokument-ID anges i Inställningar. Förifylld testmall: `https://docs.google.com/document/d/1GoyOIz18axvOWhtDIrsHuCVlwu5BkyPIGQdGGukg03Y/edit`.
+- Mallens dokument-ID anges i Inställningar. 
 - Redigeringssektioner identifieras dynamiskt med `[TAG]text[/TAG]`.
 - Endast texten mellan matchande taggar skickas som redigeringsbart innehåll till Gemini.
 - Text utanför taggarna används endast som faktaunderlag och skrivs inte om.
@@ -28,14 +28,16 @@ En Manifest V3-extension som läser en LinkedIn-jobbannons, analyserar en Google
 3. Aktivera **Utvecklarläge**.
 4. Välj **Läs in opackat** och välj mappen `cv-adapter-extension`.
 5. Kopiera tilläggets ID från tilläggssidan.
-6. I Google Cloud Console: konfigurera OAuth-samtyckesskärmen, lägg till ditt Google-konto som testanvändare om appen är i testläge och skapa en OAuth-klient av typen **Chrome Extension** med tilläggets ID.
-7. Ersätt `YOUR_CHROME_EXTENSION_OAUTH_CLIENT_ID.apps.googleusercontent.com` i `manifest.json` med klient-ID:t.
+6. I Google Cloud Console: konfigurera OAuth-samtyckesskärmen, lägg till ditt Google-konto som testanvändare om appen är i testläge och kontrollera att OAuth-klienten av typen **Chrome Extension** använder exakt samma tilläggs-ID som visas i `chrome://extensions`.
+7. `oauth2.client_id` är redan ifyllt i projektets `manifest.json`. Byt endast värdet om du har skapat en ny OAuth-klient för samma tilläggs-ID.
 8. Ladda om tillägget på `chrome://extensions`.
 9. Öppna tilläggets **Inställningar**. Ange Gemini API-nyckeln och Google Docs-mallens URL. Spara.
 10. Klicka på **Anslut Google-konto** och godkänn de begärda behörigheterna.
 11. Öppna en enskild jobbannons på LinkedIn, högerklicka och välj **Anpassa till CV**.
 
 Om mappen flyttas och Chrome skapar ett nytt tilläggs-ID behöver OAuth-klienten uppdateras med det nya ID:t.
+
+**Viktigt om `manifest.json` → `key`:** fältet ska innehålla tilläggets Base64-kodade publika nyckel, inte dess 32 tecken långa ID. Det nuvarande värdet i repositoryt ser ut att vara själva ID-strängen. Jag har inte ändrat det utan den ursprungliga publika nyckeln, eftersom en ny nyckel kan ge ett annat tilläggs-ID och därmed kräva en ny OAuth-klient.
 
 ## Behörigheter och integritet
 
@@ -55,6 +57,20 @@ Gemini-nyckeln lagras i `chrome.storage.local` i den aktuella Chrome-profilen. D
 Google Docs API behåller all dokumentstruktur och formattering utanför de redigerade intervallen. När innehåll inne i en taggad sektion ersätts infogas den nya texten vid sektionens första textposition och ärver i normalfallet formatteringen därifrån. Om en redigeringssektion innehåller flera olika teckenformat kan en ersättning därför inte garantera att varje ny teckendel får samma blandade formatering. För bästa resultat: håll varje redigeringssektion i ett konsekvent textformat.
 
 Taggar som används för redigeringssektioner ska vara vanlig dokumenttext, inte text inuti bilder eller teckningar. Undvik nästlade taggar och använd unika taggnamn per sektion.
+
+## Extraktionsmotor i v0.1.8
+
+- Jobb-ID från `/jobs/view/{id}` prioriteras framför `currentJobId` i query-parametrar. På LinkedIns sökvy används `currentJobId` som fallback.
+- Titel hämtas från det aktiva jobbhuvudets titel-element när en annonslänk med exakt jobb-ID saknas. Kandidater avgränsas till den aktiva annonsens detaljvy.
+- Företagslänken i samma jobbhuvud används för att koppla företagsnamnet till rätt annons.
+- Extraktionen letar efter sektionen `Om jobbet` / `About the job` och använder den som primär beskrivningskälla.
+- Endast expanderingsknappar inuti den identifierade jobbannonsbeskrivningen klickas. Företagsprofil och rekommenderade jobb lämnas orörda.
+- Korrigerad whitespace-normalisering för radbrytningar, tabbtecken och hårda mellanslag.
+- Diagnostiken skiljer nu mellan en identifierad jobbsektion och generell semantisk DOM-rangordning.
+
+### AMF-regressionstest
+
+Öppna `tests/amf-regression.html?currentJobId=4492556919` i Chrome. Testfixturen laddar den riktiga `content.js`-extraktionsmotorn och kontrollerar jobb-ID, titeln `Digital designer`, företaget `AMF`, att beskrivningen hämtas från `Om jobbet`, att jobbtextens `Visa mer` expanderas och att motsvarande knapp i företagsprofilen inte klickas. Testet är ett manuellt webbläsartest och kräver ingen extern testdependency.
 
 ## Extraktionsmotor i v0.1.4
 
