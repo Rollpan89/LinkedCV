@@ -1,7 +1,7 @@
 import { extractDocId, geminiGenerate, getDoc, flattenDocContent, locateSections, copyTemplate, updateCopiedDoc, normalizeForCompare } from "./shared.js";
 
 const $ = id => document.getElementById(id);
-let state = { job: null, settings: null, originalDoc: null, sections: [], proposals: [], competencyAnalysis: [], jobAnalysis: [], templateId: null };
+let state = { job: null, originalDoc: null, sections: [], proposals: [], jobAnalysis: [], templateId: null };
 
 function setProgress(percent, title, detail) {
   const value = Math.max(0, Math.min(100, percent));
@@ -21,15 +21,6 @@ function showError(message) {
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
-function renderCompetencies() {
-  const items = state.job?.competencies || [];
-  const labels = { required: "Krav", preferred: "Meriterande", technology_stack: "Teknikstack", mentioned: "Omnämnd" };
-  const classes = { required: "required", preferred: "preferred", technology_stack: "stack", mentioned: "mentioned" };
-  $("competencyCount").textContent = `${items.length} identifierade`;
-  $("noCompetencies").hidden = items.length > 0;
-  $("competencyList").innerHTML = items.map(item => `<div class="competency-item"><strong>${esc(item.name)}</strong><span class="competency-label ${classes[item.classification] || "mentioned"}">${esc(labels[item.classification] || "Omnämnd")}</span><small>${esc(item.evidence || "")}</small></div>`).join("");
-}
-
 function renderExtractionWarnings() {
   const warnings=state.job?.diagnostics?.extractionWarnings||[];
   $("extractionPanel").hidden=warnings.length===0;
@@ -38,20 +29,13 @@ function renderExtractionWarnings() {
 function renderJobAnalysis() {
   const items=state.jobAnalysis||[];
   const labels={technical:"Teknik och kompetenser",experience:"Erfarenhet",education:"Utbildning",personal:"Personliga egenskaper",responsibility:"Arbetsuppgifter och ansvar",preferred:"Meriterande",other:"Övriga krav"};
+  const statusLabels={supported:"Belagt i CV:t",transferable:"Överförbar erfarenhet",not_found:"Saknar belägg"};
+  const importanceLabels={required:"Krav",preferred:"Meriterande",responsibility:"Ansvar",context:"Kontext"};
   const groups=new Map();for(const item of items){const key=item.category||"other";if(!groups.has(key))groups.set(key,[]);groups.get(key).push(item);}
   $("jobAnalysisCount").textContent=`${items.length} punkter`;
-  $("jobAnalysisList").innerHTML=[...groups.entries()].map(([key,entries])=>`<section class="job-analysis-group"><h3>${esc(labels[key]||labels.other)}</h3>${entries.map(item=>`<article class="job-analysis-item"><div class="job-analysis-head"><strong>${esc(item.name||"Oklassificerat krav")}</strong><span class="pill">${esc(({required:"Krav",preferred:"Meriterande",responsibility:"Ansvar",context:"Kontext"})[item.importance]||"Identifierat")}</span></div><p>${esc(item.evidence||"")}</p></article>`).join("")}</section>`).join("");
+  $("jobAnalysisList").innerHTML=[...groups.entries()].map(([key,entries])=>`<section class="job-analysis-group"><h3>${esc(labels[key]||labels.other)}</h3>${entries.map(item=>`<article class="job-analysis-item"><div class="job-analysis-head"><strong>${esc(item.name||"Oklassificerat krav")}</strong><span class="pill">${esc(importanceLabels[item.importance]||"Övrigt")} · ${esc(statusLabels[item.status]||"Ej bedömt")}</span></div><p><strong>Annons:</strong> ${esc(item.evidence||"")}</p><p><strong>CV:</strong> ${esc(item.cvEvidence||"Inget tydligt belägg")}</p><p><strong>Rekommendation:</strong> ${esc(item.recommendation||"")}</p></article>`).join("")}</section>`).join("");
   $("jobAnalysisPanel").hidden=items.length===0;
 }
-function renderCompetencyAnalysis() {
-  const items = state.competencyAnalysis || [];
-  const labels = { supported: "Belagd i CV:t", transferable: "Överförbar erfarenhet", not_found: "Saknar belägg" };
-  const classes = { supported: "supported", transferable: "transferable", not_found: "not-found" };
-  $("coverageCount").textContent = `${items.filter(x => x.status === "supported").length} belagda · ${items.filter(x => x.status === "transferable").length} överförbara · ${items.filter(x => x.status === "not_found").length} saknar belägg`;
-  $("coverageList").innerHTML = items.map(item => `<article class="coverage-item"><div class="coverage-head"><strong>${esc(item.name)}</strong><span class="coverage-status ${classes[item.status] || "not-found"}">${esc(labels[item.status] || "Ej bedömd")}</span></div><small>${esc(item.classification || "")}</small><p>${esc(item.evidence || "")}</p><p class="reason">${esc(item.recommendation || "")}</p></article>`).join("");
-  $("coveragePanel").hidden = items.length === 0;
-}
-
 function renderDiffs() {
   const byTag = new Map(state.proposals.map(p => [p.tag, p]));
   const changed = state.sections.filter(s => normalizeForCompare(byTag.get(s.tag)?.text ?? s.original) !== normalizeForCompare(s.original));
@@ -73,12 +57,11 @@ async function init() {
     if (!settings.apiKey) throw new Error("Lägg till din Gemini API-nyckel i tilläggets inställningar först.");
     if (!settings.templateUrl) throw new Error("Ange länken till din Google Docs-mall i inställningarna.");
     state.job = pendingJob;
-    state.settings = settings;
     setProgress(20, "Annons och inställningar klara", "Hämtar CV-mallen från Google Docs. Inloggning kan behövas.");
     state.templateId = extractDocId(settings.templateUrl);
     $("jobTitle").textContent = pendingJob.title || "Jobbannons – titel kunde inte identifieras";
     $("jobCompany").textContent = pendingJob.company || "Företag kunde inte identifieras automatiskt";
-    state.job={diagnostics:pendingJob.diagnostics||{}};
+    state.job=pendingJob;
     renderExtractionWarnings();
     $("jobLink").href = pendingJob.url;
     const d = pendingJob.diagnostics || {};
@@ -88,7 +71,6 @@ async function init() {
       `Beskrivning: ${(d.descriptionLength || pendingJob.description?.length || 0).toLocaleString("sv-SE")} tecken`,
       `Extraktionskälla: ${d.descriptionSource || "okänd"}`,
       d.jobId && `Annons-ID: ${d.jobId}`,
-      `Identifierade tekniker: ${d.competencyCount ?? pendingJob.competencies?.length ?? 0}`,
       `Säkerhetsbedömning: ${d.confidence ?? 0} %`,
       d.jsonLdFound ? "Strukturerad annonsdata hittad" : "Ingen strukturerad annonsdata"
     ].filter(Boolean).join(" · ");
@@ -103,17 +85,15 @@ async function init() {
     const analysis = await geminiGenerate({
       apiKey: settings.apiKey,
       model: settings.model,
-      job: { title: pendingJob.title || "", company: pendingJob.company || "", description: pendingJob.description || pendingJob.text, competencies: pendingJob.competencies || [], jobSections: pendingJob.jobSections || {}, diagnostics: pendingJob.diagnostics || {} },
+      fallbackModels: settings.fallbackModels,
+      job: { title: pendingJob.title || "", company: pendingJob.company || "", description: pendingJob.description || pendingJob.text, diagnostics: pendingJob.diagnostics || {} },
       fullCvText: flat.text.replace(/\[\/?[A-Z0-9_ÄÖÅ-]+\]/g, ""),
       sections: state.sections
     });
     state.proposals = analysis.sections;
-    state.competencyAnalysis = analysis.competencyAnalysis;
     state.jobAnalysis = analysis.jobAnalysis || [];
-    renderCompetencies();
     renderJobAnalysis();
-    renderCompetencyAnalysis();
-    setProgress(80, "Gemini-analysen klar", "Förbereder jämförelsen mellan nuvarande och föreslagen CV-text.");
+    setProgress(80, "Gemini-analysen klar", `Analysen genomfördes med ${analysis.modelUsed}. Förbereder jämförelsen mellan nuvarande och föreslagen CV-text.`);
     renderDiffs();
     setProgress(100, "Analysen färdig", "Förslagen är klara att granska. Inget dokument har skapats ännu.");
     $("loading").setAttribute("aria-busy", "false");
@@ -137,7 +117,7 @@ $("create").addEventListener("click", async () => {
     const url = copy.webViewLink || `https://docs.google.com/document/d/${copy.id}/edit`;
     const entry = { id: copy.id, url, role, company, createdAt: new Date().toISOString(), jobUrl: state.job.url };
     const { history = [] } = await chrome.storage.local.get("history");
-    await chrome.storage.local.set({ history: [entry, ...history].slice(0, 100), latest: entry });
+    await chrome.storage.local.set({ history: [entry, ...history].slice(0, 100) });
     chrome.runtime.sendMessage({ type: "CV_CREATED" }).catch(() => {});
     $("create").textContent = "CV skapat";
     $("create").disabled = true;
