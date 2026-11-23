@@ -30,9 +30,10 @@ function renderJobAnalysis() {
   const items=state.jobAnalysis||[];
   const labels={technical:"Teknik och kompetenser",experience:"Erfarenhet",education:"Utbildning",personal:"Personliga egenskaper",responsibility:"Arbetsuppgifter och ansvar",preferred:"Meriterande",other:"Övriga krav"};
   const statusLabels={supported:"Belagt i CV:t",transferable:"Överförbar erfarenhet",not_found:"Saknar belägg"};
+  const importanceLabels={required:"Krav",preferred:"Meriterande",responsibility:"Ansvar",context:"Kontext"};
   const groups=new Map();for(const item of items){const key=item.category||"other";if(!groups.has(key))groups.set(key,[]);groups.get(key).push(item);}
   $("jobAnalysisCount").textContent=`${items.length} punkter`;
-  $("jobAnalysisList").innerHTML=[...groups.entries()].map(([key,entries])=>`<section class="job-analysis-group"><h3>${esc(labels[key]||labels.other)}</h3>${entries.map(item=>`<article class="job-analysis-item"><div class="job-analysis-head"><strong>${esc(item.name||"Oklassificerat krav")}</strong><span class="pill">${esc(statusLabels[item.status]||"Ej bedömt")}</span></div><p><strong>Annons:</strong> ${esc(item.evidence||"")}</p><p><strong>CV:</strong> ${esc(item.cvEvidence||"Inget tydligt belägg")}</p><p><strong>Rekommendation:</strong> ${esc(item.recommendation||"")}</p></article>`).join("")}</section>`).join("");
+  $("jobAnalysisList").innerHTML=[...groups.entries()].map(([key,entries])=>`<section class="job-analysis-group"><h3>${esc(labels[key]||labels.other)}</h3>${entries.map(item=>`<article class="job-analysis-item"><div class="job-analysis-head"><strong>${esc(item.name||"Oklassificerat krav")}</strong><span class="pill">${esc(importanceLabels[item.importance]||"Övrigt")} · ${esc(statusLabels[item.status]||"Ej bedömt")}</span></div><p><strong>Annons:</strong> ${esc(item.evidence||"")}</p><p><strong>CV:</strong> ${esc(item.cvEvidence||"Inget tydligt belägg")}</p><p><strong>Rekommendation:</strong> ${esc(item.recommendation||"")}</p></article>`).join("")}</section>`).join("");
   $("jobAnalysisPanel").hidden=items.length===0;
 }
 function renderDiffs() {
@@ -70,7 +71,6 @@ async function init() {
       `Beskrivning: ${(d.descriptionLength || pendingJob.description?.length || 0).toLocaleString("sv-SE")} tecken`,
       `Extraktionskälla: ${d.descriptionSource || "okänd"}`,
       d.jobId && `Annons-ID: ${d.jobId}`,
-      `Identifierade tekniker: ${d.competencyCount ?? pendingJob.competencies?.length ?? 0}`,
       `Säkerhetsbedömning: ${d.confidence ?? 0} %`,
       d.jsonLdFound ? "Strukturerad annonsdata hittad" : "Ingen strukturerad annonsdata"
     ].filter(Boolean).join(" · ");
