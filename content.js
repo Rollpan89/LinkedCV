@@ -4,7 +4,6 @@
 
   const normalize = value => String(value || '').replace(/\u00a0/g, ' ').replace(/[\t ]+/g, ' ').replace(/\n[ \t]+/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   const visibleText = node => normalize(node?.innerText || node?.textContent || '');
-  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const NOISE = /^(?:sign in|log in|join now|gå med nu|logga in|apply|ansök|save|spara|share|dela|report|rapportera|see more|show more|visa mer)$/i;
   const DESC_HEADING = /about the job|job description|the role|responsibilities|requirements|qualifications|what you.ll do|om jobbet|arbetsbeskrivning|ansvarsområden|kvalifikationer|kravprofil|vi söker|din profil|dina arbetsuppgifter/i;
   const SKILL_WORDS = /experience|erfarenhet|knowledge|kunskap|proficiency|kompetens|skills|färdigheter|requirements|krav|responsibilit|arbetsuppgift|qualifications|kvalifikation|merit|utbildning|years|år\b/i;
@@ -43,7 +42,6 @@
     if (el.closest('nav,footer,[role="navigation"],[role="menu"]')) return false;
     return true;
   }
-  function allText(el) { return usable(el) ? visibleText(el) : ''; }
   function unique(nodes) { return [...new Set(nodes)].filter(Boolean); }
 
   function waitForStableDom(timeout = 4500, quiet = 500) {
@@ -143,7 +141,7 @@
     return unique([...exact, ...known, ...main, ...roots]).filter(el => visibleText(el).length > 100)
       .sort((a,b) => visibleText(a).length - visibleText(b).length);
   }
-  function findJobTitleByJobId(roots = []) {
+  function findJobTitleByJobId() {
     const id = getCurrentJobId();
     if (!id) return null;
     const links = [...document.querySelectorAll('a[href*="/jobs/view/"]')].filter(usable).map(el => {
@@ -216,7 +214,7 @@
     return null;
   }
   function findJobTitle(posting, roots) {
-    const exactLink = findJobTitleByJobId(roots);
+    const exactLink = findJobTitleByJobId();
     if (exactLink?.value || exactLink?.ambiguous) return exactLink;
     if (posting?.title) return {value:normalize(posting.title), source:'JSON-LD'};
     const headerTitle = findTitleInActiveHeader(roots);
@@ -289,23 +287,26 @@
     return score;
   }
   function extractDescription(posting, roots, scopedSection = null) {
-    const candidates = candidateDescriptionNodes(roots).map(el => ({el,value:visibleText(el),score:scoreDescription(el,roots)}))
-      .filter(x => Number.isFinite(x.score)).sort((a,b)=>b.score-a.score);
     if (scopedSection) {
       const raw = visibleText(scopedSection);
       const lines = raw.split(/\n+/);
       const headingIndex = lines.findIndex(line => /^(?:om jobbet|about the job|job description|arbetsbeskrivning)$/i.test(normalize(line)));
       const scopedText = normalize((headingIndex >= 0 ? lines.slice(headingIndex + 1) : lines).join('\n')
         .replace(/(?:…|\.{2,})\s*(?:mer|more)\s*$/i, ''));
-      if (scopedText.length >= 180) return {value:scopedText, source:'LinkedIn-sektionen "Om jobbet"', score:30, candidates:candidates.length, scoped:true};
+      if (scopedText.length >= 180) {
+        const mayBeIncomplete = [...scopedSection.querySelectorAll('button,[role="button"]')].some(button => isVisible(button) && /(?:show more|see more|visa mer|visa fler|read more|läs mer|…\s*mer)/i.test(normalize(`${visibleText(button)} ${button.getAttribute('aria-label') || ''}`)));
+        return {value:scopedText, source:'LinkedIn-sektionen "Om jobbet"', score:30, candidates:0, scoped:true, mayBeIncomplete};
+      }
     }
+    const candidates = candidateDescriptionNodes(roots).map(el => ({el,value:visibleText(el),score:scoreDescription(el,roots)}))
+      .filter(x => Number.isFinite(x.score)).sort((a,b)=>b.score-a.score);
     const best = candidates[0];
     const structured = htmlText(posting?.description || '');
     if (structured.length >= 180 && (!best || structured.length >= best.value.length * 0.78)) return {value:structured, source:'JSON-LD JobPosting.description', score:20, candidates:candidates.length, scoped:false};
     if (best) return {value:best.value, source:'semantisk DOM-rangordning', score:Math.round(best.score*10)/10, candidates:candidates.length, scoped:false};
     return {value:structured, source:structured?'JSON-LD JobPosting.description':'saknas', score:structured.length>=180?20:0, candidates:candidates.length, scoped:false};
   }
-  function nearbyMetadata(title, roots, posting, titleElement = null) {
+  function nearbyMetadata(title, posting, titleElement = null) {
     const result = {company:orgName(posting), location:postingLocation(posting), employmentType:normalize((Array.isArray(posting?.employmentType)?posting.employmentType:[posting?.employmentType]).filter(Boolean).join(', '))};
     const titleNode = titleElement || headingCandidates().find(h => h.text === title)?.el;
     if (titleNode) {
@@ -355,85 +356,6 @@
     }
     return result;
   }
-  const TECH_TERMS = [
-    ['JavaScript', ['javascript']], ['TypeScript', ['typescript']], ['Java', ['java']], ['C#', ['c#','c sharp']], ['.NET', ['.net','dotnet']],
-    ['Node.js', ['node.js','nodejs']], ['React', ['react']], ['Vue', ['vue.js','vue']], ['Angular', ['angular']], ['Next.js', ['next.js','nextjs']],
-    ['HTML', ['html']], ['CSS', ['css']], ['Sass', ['sass','scss']], ['Webpack', ['webpack']], ['Vite', ['vite']], ['Web Components', ['web components','custom elements']],
-    ['Spring', ['spring boot','spring framework']], ['Python', ['python']], ['PHP', ['php']], ['Go', ['golang']], ['Kotlin', ['kotlin']], ['Swift', ['swift']],
-    ['REST', ['rest api','restful','rest']], ['GraphQL', ['graphql']], ['OpenAPI', ['openapi']], ['Swagger', ['swagger']], ['Kafka', ['kafka']], ['RabbitMQ', ['rabbitmq']],
-    ['Azure', ['microsoft azure','azure']], ['AWS', ['amazon web services','aws']], ['Google Cloud', ['google cloud','gcp']], ['Docker', ['docker']], ['Kubernetes', ['kubernetes','k8s']], ['OpenShift', ['openshift']],
-    ['Azure DevOps', ['azure devops']], ['GitHub Actions', ['github actions']], ['GitLab CI', ['gitlab ci']], ['Jenkins', ['jenkins']], ['ArgoCD', ['argocd','argo cd']], ['CI/CD', ['ci/cd','continuous integration','continuous delivery']],
-    ['SQL', ['sql']], ['PostgreSQL', ['postgresql','postgres']], ['MySQL', ['mysql']], ['MongoDB', ['mongodb']], ['Cosmos DB', ['cosmos db']], ['Redis', ['redis']],
-    ['Playwright', ['playwright']], ['Cypress', ['cypress']], ['Selenium', ['selenium']], ['Jest', ['jest']], ['Vitest', ['vitest']], ['TDD', ['tdd','test-driven development']],
-    ['OAuth', ['oauth']], ['OIDC', ['oidc','openid connect']], ['JWT', ['jwt']], ['Microservices', ['microservices','mikrotjänster']], ['Micro Frontends', ['micro frontend','micro-frontends','mfe']],
-    ['Git', ['git']], ['Linux', ['linux']], ['Terraform', ['terraform']], ['Ansible', ['ansible']], ['Figma', ['figma']]
-  ];
-  const REQUIRED_CONTEXT = /\b(krav|required|required qualifications|must have|ska ha|behöver ha|erfarenhet av|kunskap om|kompetens inom|minst \d+ år|at least \d+ years|we are looking for|vi söker dig som)\b/i;
-  const PREFERRED_CONTEXT = /\b(meriterande|önskvärt|önskvärd|gärna|fördel|preferred|nice to have|bonus|an advantage|plus)\b/i;
-  const STACK_CONTEXT = /\b(vår teknikstack|teknikstack|tech stack|we use|our stack|plattformen består|vi använder|miljö består|verktyg som används)\b/i;
-  function escapeRegExp(value) { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-  function extractCompetencies(description) {
-    const text = normalize(description);
-    const lower = text.toLowerCase();
-    const lines = text.split('\n');
-    const offsets = [];
-    let cursor = 0;
-    for (const line of lines) { offsets.push({start:cursor,end:cursor+line.length,text:line}); cursor += line.length + 1; }
-    const sectionFor = line => {
-      if (/^(meriterande|extra meriterande|önskvärt|preferred qualifications|nice to have)/i.test(line)) return 'preferred';
-      if (/^(krav|kvalifikationer|kravprofil|din profil|vi söker dig|följande kommer göra dig framgångsrik|required qualifications|requirements)/i.test(line)) return 'required';
-      if (/^(teknikstack|tech stack|vår teknikstack|technology stack|tekniker och verktyg)/i.test(line)) return 'technology_stack';
-      return '';
-    };
-    const lineModes = [];
-    let activeMode = '';
-    for (const line of lines) {
-      const explicit = sectionFor(normalize(line));
-      if (explicit) activeMode = explicit;
-      else if (/^(arbetsuppgifter|ansvarsområden|dina arbetsuppgifter|responsibilities|what you.ll do)/i.test(line)) activeMode = '';
-      lineModes.push(activeMode);
-    }
-    const found = [];
-    for (const [canonical, aliases] of TECH_TERMS) {
-      let best = null;
-      for (const alias of aliases) {
-        const re = new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(alias)}(?=$|[^\\p{L}\\p{N}])`, 'giu');
-        let m;
-        while ((m = re.exec(lower))) {
-          const position = m.index + m[1].length;
-          const lineIndex = Math.max(0, offsets.findIndex(x => position >= x.start && position <= x.end));
-          const line = offsets[lineIndex]?.text || '';
-          const sentenceStart = Math.max(line.lastIndexOf('.', position - offsets[lineIndex].start), line.lastIndexOf(';', position - offsets[lineIndex].start), line.lastIndexOf(':', position - offsets[lineIndex].start));
-          const local = line.slice(Math.max(0, sentenceStart), Math.min(line.length, sentenceStart + 260));
-          let classification = lineModes[lineIndex] || 'mentioned';
-          if (PREFERRED_CONTEXT.test(local)) classification = 'preferred';
-          else if (REQUIRED_CONTEXT.test(local)) classification = 'required';
-          else if (STACK_CONTEXT.test(local)) classification = 'technology_stack';
-          const rank = ({required:4,preferred:3,technology_stack:2,mentioned:1})[classification];
-          if (!best || rank > best.rank) best = {classification, rank, excerpt: normalize(line).slice(0,280)};
-        }
-      }
-      if (best) found.push({name:canonical, classification:best.classification, evidence:best.excerpt});
-    }
-    return found.sort((a,b) => ({required:0,preferred:1,technology_stack:2,mentioned:3}[a.classification] - {required:0,preferred:1,technology_stack:2,mentioned:3}[b.classification]) || a.name.localeCompare(b.name,'sv'));
-  }
-  function classifyJobSections(description) {
-    const lines = String(description || '').split(/\n+/).map(normalize).filter(Boolean);
-    const buckets = { responsibilities:[], requirements:[], preferredQualifications:[], technologyStack:[], experience:[], education:[], personalAttributes:[] };
-    let mode = 'other';
-    for (const line of lines) {
-      if (/^(meriterande|extra meriterande|önskvärt|preferred qualifications|nice to have)/i.test(line)) mode = 'preferredQualifications';
-      else if (/^(teknikstack|tech stack|vår teknikstack|technology stack|tekniker och verktyg)/i.test(line)) mode = 'technologyStack';
-      else if (/^(utbildning|education|academic background|examen)/i.test(line)) mode = 'education';
-      else if (/^(erfarenhet|experience|bakgrund|years of experience)/i.test(line)) mode = 'experience';
-      else if (/^(personliga egenskaper|personliga kvalifikationer|personal attributes|who you are|om dig)/i.test(line)) mode = 'personalAttributes';
-      else if (/^(krav|kvalifikationer|din profil|vi söker dig|requirements|required qualifications|what you.ll bring)/i.test(line)) mode = 'requirements';
-      else if (/^(arbetsuppgifter|ansvarsområden|dina arbetsuppgifter|responsibilities|what you.ll do)/i.test(line)) mode = 'responsibilities';
-      if (mode !== 'other') buckets[mode].push(line);
-    }
-    for (const key of Object.keys(buckets)) buckets[key] = normalize(buckets[key].join('\n')).slice(0,9000);
-    return buckets;
-  }
   function summarizeRoots(roots) {
     return roots.slice(0,8).map(r=>({tag:r.tagName.toLowerCase(),role:r.getAttribute('role')||'',textLength:visibleText(r).length}));
   }
@@ -449,12 +371,9 @@
     }
     const posting = parseStructuredJobs();
     const titleInfo = findJobTitle(posting, roots);
-    const meta = nearbyMetadata(titleInfo.value, roots, posting, titleInfo.element || null);
-    if (titleInfo.element) { const headerCompany = findCompanyNearJobLink(titleInfo.element); if (headerCompany) meta.company = headerCompany; }
+    const meta = nearbyMetadata(titleInfo.value, posting, titleInfo.element || null);
     const desc = extractDescription(posting, roots, descriptionScope);
     const description = normalize(desc.value);
-    const competencies = extractCompetencies(description);
-    const jobSections = classifyJobSections(description);
     const metadata = [titleInfo.value && `Tjänst: ${titleInfo.value}`, meta.company && `Företag: ${meta.company}`, meta.location && `Plats: ${meta.location}`, meta.employmentType && `Anställningstyp: ${meta.employmentType}`].filter(Boolean).join('\n');
     const text = normalize([metadata,description].filter(Boolean).join('\n\n'));
     const confidence = Math.max(0,Math.min(100,Math.round((titleInfo.value?20:0)+(description.length>=1000?40:description.length>=400?30:description.length>=80?18:0)+(desc.score>=15?15:desc.score>=8?8:0)+(meta.company?10:0)+(posting?10:0)+(meta.location?5:0))));
@@ -467,10 +386,10 @@
     if (desc.mayBeIncomplete) extractionWarnings.push('LinkedIn visar fortfarande en Visa mer-kontroll. Beskrivningen kan vara ofullständig.');
     return {
       title:titleInfo.value, company:meta.company, location:meta.location, employmentType:meta.employmentType,
-      description, competencies, jobSections, text,
+      description, text,
       diagnostics:{engine:'semantic-content-v6', jobId:getCurrentJobId(), titleSource:titleInfo.source, titleAmbiguous:Boolean(titleInfo.ambiguous), descriptionSource:desc.source, descriptionLength:description.length,
         descriptionScore:desc.score, descriptionScoped:Boolean(desc.scoped), descriptionScopeFound:Boolean(descriptionScope), descriptionMayBeIncomplete:Boolean(desc.mayBeIncomplete), extractionWarnings,
-        candidateCount:desc.candidates, competencyCount:competencies.length, titleFound:Boolean(titleInfo.value), companyFound:Boolean(meta.company), locationFound:Boolean(meta.location),
+        candidateCount:desc.candidates, titleFound:Boolean(titleInfo.value), companyFound:Boolean(meta.company), locationFound:Boolean(meta.location),
         jsonLdFound:Boolean(posting), confidence, roots:summarizeRoots(roots), capturedAt:new Date().toISOString()}
     };
   }
