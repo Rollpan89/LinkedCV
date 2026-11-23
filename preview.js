@@ -85,6 +85,7 @@ async function init() {
     const analysis = await geminiGenerate({
       apiKey: settings.apiKey,
       model: settings.model,
+      fallbackModels: settings.fallbackModels,
       job: { title: pendingJob.title || "", company: pendingJob.company || "", description: pendingJob.description || pendingJob.text, diagnostics: pendingJob.diagnostics || {} },
       fullCvText: flat.text.replace(/\[\/?[A-Z0-9_ÄÖÅ-]+\]/g, ""),
       sections: state.sections
@@ -92,7 +93,7 @@ async function init() {
     state.proposals = analysis.sections;
     state.jobAnalysis = analysis.jobAnalysis || [];
     renderJobAnalysis();
-    setProgress(80, "Gemini-analysen klar", "Förbereder jämförelsen mellan nuvarande och föreslagen CV-text.");
+    setProgress(80, "Gemini-analysen klar", `Analysen genomfördes med ${analysis.modelUsed}. Förbereder jämförelsen mellan nuvarande och föreslagen CV-text.`);
     renderDiffs();
     setProgress(100, "Analysen färdig", "Förslagen är klara att granska. Inget dokument har skapats ännu.");
     $("loading").setAttribute("aria-busy", "false");

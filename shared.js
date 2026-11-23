@@ -1,4 +1,11 @@
+export const FREE_GEMINI_MODELS = [
+  { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash" },
+  { id: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash-Lite" },
+  { id: "gemini-3.1-flash-lite", label: "Gemini 3.1 Flash-Lite" }
+];
 export const DEFAULT_MODEL = "gemini-3.5-flash-lite";
+export const DEFAULT_FALLBACK_MODELS = ["gemini-3.8-flash", "gemini-3.1-flash-lite"];
+const FREE_MODEL_IDS = new Set(FREE_GEMINI_MODELS.map(model => model.id));
 export const GOOGLE_DOCS_SCOPE_NOTE = "Tillägget behöver åtkomst till Google Docs och Google Drive för att läsa mallen och skapa en kopia.";
 
 export function extractDocId(input) {
@@ -13,8 +20,12 @@ export function normalizeForCompare(value) {
   return String(value || "").replace(/\r\n/g, "\n").trim();
 }
 
-export async function geminiGenerate({ apiKey, model = DEFAULT_MODEL, job, fullCvText, sections }) {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+export async function geminiGenerate({ apiKey, model = DEFAULT_MODEL, fallbackModels = DEFAULT_FALLBACK_MODELS, job, fullCvText, sections }) {
+  // Only models explicitly verified as free-tier are permitted. Unknown IDs are rejected,
+  // never sent to Google, so a stale or manually edited setting cannot select a paid model.
+  const primaryModel = FREE_MODEL_IDS.has(model) ? model : DEFAULT_MODEL;
+  const modelSequence = [...new Set([primaryModel, ...(Array.isArray(fallbackModels) ? fallbackModels : [])
+    .filter(id => FREE_MODEL_IDS.has(id) && id !== primaryModel)])];
   const payload = {
     systemInstruction: {
       parts: [{ text: `Du är en noggrann svensk CV-redaktör och kravanalytiker.
@@ -32,15 +43,48 @@ Returnera ENDAST giltig JSON enligt schemat: {"jobAnalysis":[{"category":"techni
     contents: [{ role: "user", parts: [{ text: JSON.stringify({ job_ad: job, complete_cv_as_context: fullCvText, editable_sections: sections.map(s => ({ tag: s.tag, text: s.original })) }) }] }],
     generationConfig: { temperature: 0.1, responseMimeType: "application/json" }
   };
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-    body: JSON.stringify(payload)
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const detail = data?.error?.message || `Gemini-anropet misslyckades (${response.status}).`;
-    throw new Error(detail);
+  let data = null;
+  let modelUsed = null;
+  const retryableStatuses = new Set([408, 429, 500, 502, 503, 504]);
+  const failures = [];
+  for (const candidateModel of modelSequence) {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(candidateModel)}:generateContent`;
+    let response;
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000);
+      try {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        failures.push(`${candidateModel}: timeout`);
+        continue;
+      }
+      throw error;
+    }
+    const attemptData = await response.json().catch(() => ({}));
+    if (response.ok) {
+      data = attemptData;
+      modelUsed = candidateModel;
+      break;
+    }
+    const detail = attemptData?.error?.message || `HTTP ${response.status}`;
+    if (retryableStatuses.has(response.status) || response.status === 404) {
+      failures.push(`${candidateModel}: ${response.status}`);
+      continue;
+    }
+    throw new Error(`Gemini (${candidateModel}) avvisade anropet (${response.status}): ${detail}`);
+  }
+  if (!data || !modelUsed) {
+    throw new Error(`Ingen av de kostnadsfria Gemini-modellerna kunde svara. Försökta modeller: ${failures.join(", ")}. Kontrollera modellernas gratiskvoter och försök igen.`);
   }
   const raw = data?.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
   if (!raw) throw new Error("Gemini returnerade inget förslag. Kontrollera API-nyckel och modellkvot.");
@@ -59,7 +103,7 @@ Returnera ENDAST giltig JSON enligt schemat: {"jobAnalysis":[{"category":"techni
     returned.add(item.tag);
   }
   if (returned.size !== allowed.size) throw new Error("Gemini-svaret saknar en eller flera CV-sektioner. Inget dokument har skapats.");
-  return { sections: parsed.sections, jobAnalysis: parsed.jobAnalysis };
+  return { sections: parsed.sections, jobAnalysis: parsed.jobAnalysis, modelUsed };
 }
 
 export async function getGoogleToken(interactive = true) {

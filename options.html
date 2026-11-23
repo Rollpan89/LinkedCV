@@ -19,8 +19,28 @@
       <label for="apiKey">Gemini API-nyckel</label>
       <input id="apiKey" type="password" autocomplete="off" placeholder="Klistra in din API-nyckel">
       <p class="hint">Nyckeln lagras lokalt i Chrome. Använd en personlig nyckel och dela inte tilläggsmappen med andra.</p>
-      <label for="model">Modell</label>
-      <select id="model"><option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option></select>
+      <label for="model">Primär modell</label>
+      <select id="model">
+        <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+        <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option>
+        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option>
+      </select>
+      <p class="hint">Om den primära modellen är överbelastad eller når sin gratiskvot provas reservmodellerna automatiskt.</p>
+      <label for="fallbackModel1">Reservmodell 1</label>
+      <select id="fallbackModel1">
+        <option value="">Ingen</option>
+        <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+        <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option>
+        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option>
+      </select>
+      <label for="fallbackModel2">Reservmodell 2</label>
+      <select id="fallbackModel2">
+        <option value="">Ingen</option>
+        <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+        <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option>
+        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option>
+      </select>
+      <p class="hint">Endast modeller med kostnadsfri standardnivå kan väljas. Tillägget avvisar andra modell-ID:n och växlar aldrig till en betald modell. Google kan ändra sina priser och kvoter över tid.</p>
     </section>
     <section class="panel">
       <h2>Regler för CV-anpassning</h2>
