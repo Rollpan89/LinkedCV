@@ -32,10 +32,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     if (response?.error) throw new Error(response.error);
     const description = String(response?.description || "").trim();
     const diagnostics = response?.diagnostics || {};
-    // Company/location are optional: LinkedIn frequently omits them from the
-    // rendered page. A sufficiently strong title + description is enough.
-    if (diagnostics.titleAmbiguous || !response?.title || description.length < 250 || (diagnostics.confidence ?? 0) < 35) {
-      throw new Error(`Annonsen kunde inte läsas tillräckligt säkert. Titel: ${response?.title ? "hittad" : "saknas eller tvetydig"}; beskrivning: ${description.length} tecken; extraktionssäkerhet: ${diagnostics.confidence ?? 0} %. Källa: ${diagnostics.descriptionSource || "okänd"}. Öppna annonsens fullständiga vy, välj Visa mer om det finns och försök igen.`);
+    // Metadata and confidence are diagnostic only. Partial captures remain useful.
+    if (description.length < 80) {
+      throw new Error(`För lite annonstext kunde extraheras för en meningsfull analys (${description.length} tecken). Öppna annonsens fullständiga vy och försök igen.`);
     }
     await chrome.storage.session.set({ pendingJob: {
       text: String(response.text || "").slice(0, 30000), description: description.slice(0, 26000),

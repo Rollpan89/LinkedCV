@@ -167,11 +167,10 @@
       .filter(x => x.text.length >= 4 && x.text.length <= 120 && !NON_JOB_HEADINGS.test(x.text));
     const uniqueTexts = [...new Set(normalized.map(x => x.text))];
     if (uniqueTexts.length === 1) return {value:uniqueTexts[0], source:'LinkedIn-jobbhuvudets titel-element', element:normalized.find(x=>x.text===uniqueTexts[0]).el, jobId:getCurrentJobId()};
-    if (uniqueTexts.length > 1) return {value:'', source:'flera titlar i aktivt jobbhuvud', ambiguous:true, jobId:getCurrentJobId()};
 
-    // Some LinkedIn layouts render the role as an ordinary styled div rather
-    // than a heading or a stable title class. In that case, find a short role
-    // label that follows the employer link inside the compact job header.
+    // LinkedIn may render the title as a bare text node (not a heading or
+    // element). Resolve it relative to the active employer link, rather than
+    // ranking every title-like element on the whole job page.
     const scopes = activeJobScopes(roots);
     const depthOf = el => { let depth=0; for (let node=el; node; node=node.parentElement) depth++; return depth; };
     for (const scope of scopes) {
@@ -184,6 +183,27 @@
           const nearby = [...compact.querySelectorAll('*')].filter(usable).map(el => ({el,text:visibleText(el)}))
             .filter(x => x.el !== companyLink && x.text.length >= 5 && x.text.length <= 100 && JOB_TITLE_WORDS.test(x.text) && !NON_JOB_HEADINGS.test(x.text))
             .filter(x => { try { return Boolean(companyLink.compareDocumentPosition(x.el) & Node.DOCUMENT_POSITION_FOLLOWING); } catch (_) { return false; } });
+          const textNodes = [];
+          const walker = document.createTreeWalker(compact, NodeFilter.SHOW_TEXT);
+          let textNode;
+          while ((textNode = walker.nextNode())) {
+            const value = normalize(textNode.nodeValue || '');
+            const parent = textNode.parentElement;
+            if (!parent || parent.closest('a,button,[aria-hidden="true"]') || value.length < 5 || value.length > 100) continue;
+            if (!JOB_TITLE_WORDS.test(value) || NON_JOB_HEADINGS.test(value)) continue;
+            try {
+              if (companyLink.compareDocumentPosition(textNode) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                textNodes.push({el:parent,text:value,node:textNode});
+              }
+            } catch (_) {}
+          }
+          // A bare text node is stronger evidence than broad descendant text,
+          // which can include nested metadata and duplicate labels.
+          const textNodeValues = [...new Set(textNodes.map(x=>x.text))];
+          if (textNodeValues.length === 1) {
+            const match = textNodes.find(x=>x.text===textNodeValues[0]);
+            return {value:match.text, source:'titeltextnod i aktivt jobbhuvud efter företagslänken', element:match.el, jobId:getCurrentJobId()};
+          }
           const texts = [...new Set(nearby.map(x=>x.text))];
           if (texts.length === 1) {
             const match = nearby.filter(x=>x.text===texts[0]).sort((a,b)=>depthOf(b.el)-depthOf(a.el))[0];
@@ -192,6 +212,7 @@
         }
       }
     }
+    if (uniqueTexts.length > 1) return {value:'', source:'flera titlar i aktivt jobbhuvud', ambiguous:true, jobId:getCurrentJobId()};
     return null;
   }
   function findJobTitle(posting, roots) {
@@ -398,12 +419,15 @@
   }
   function classifyJobSections(description) {
     const lines = String(description || '').split(/\n+/).map(normalize).filter(Boolean);
-    const buckets = { responsibilities:[], requirements:[], preferredQualifications:[], technologyStack:[] };
+    const buckets = { responsibilities:[], requirements:[], preferredQualifications:[], technologyStack:[], experience:[], education:[], personalAttributes:[] };
     let mode = 'other';
     for (const line of lines) {
-      if (/^(krav|kvalifikationer|din profil|vi söker dig|requirements|required qualifications|what you.ll bring)/i.test(line)) mode = 'requirements';
-      else if (/^(meriterande|extra meriterande|önskvärt|preferred qualifications|nice to have)/i.test(line)) mode = 'preferredQualifications';
+      if (/^(meriterande|extra meriterande|önskvärt|preferred qualifications|nice to have)/i.test(line)) mode = 'preferredQualifications';
       else if (/^(teknikstack|tech stack|vår teknikstack|technology stack|tekniker och verktyg)/i.test(line)) mode = 'technologyStack';
+      else if (/^(utbildning|education|academic background|examen)/i.test(line)) mode = 'education';
+      else if (/^(erfarenhet|experience|bakgrund|years of experience)/i.test(line)) mode = 'experience';
+      else if (/^(personliga egenskaper|personliga kvalifikationer|personal attributes|who you are|om dig)/i.test(line)) mode = 'personalAttributes';
+      else if (/^(krav|kvalifikationer|din profil|vi söker dig|requirements|required qualifications|what you.ll bring)/i.test(line)) mode = 'requirements';
       else if (/^(arbetsuppgifter|ansvarsområden|dina arbetsuppgifter|responsibilities|what you.ll do)/i.test(line)) mode = 'responsibilities';
       if (mode !== 'other') buckets[mode].push(line);
     }
@@ -433,13 +457,20 @@
     const jobSections = classifyJobSections(description);
     const metadata = [titleInfo.value && `Tjänst: ${titleInfo.value}`, meta.company && `Företag: ${meta.company}`, meta.location && `Plats: ${meta.location}`, meta.employmentType && `Anställningstyp: ${meta.employmentType}`].filter(Boolean).join('\n');
     const text = normalize([metadata,description].filter(Boolean).join('\n\n'));
-    const confidence = Math.max(0,Math.min(100,Math.round((titleInfo.value?20:0)+(description.length>=1000?40:description.length>=400?30:description.length>=180?18:0)+(desc.score>=15?15:desc.score>=8?8:0)+(meta.company?10:0)+(posting?10:0)+(meta.location?5:0))));
+    const confidence = Math.max(0,Math.min(100,Math.round((titleInfo.value?20:0)+(description.length>=1000?40:description.length>=400?30:description.length>=80?18:0)+(desc.score>=15?15:desc.score>=8?8:0)+(meta.company?10:0)+(posting?10:0)+(meta.location?5:0))));
+    const extractionWarnings = [];
+    if (!titleInfo.value) extractionWarnings.push('Tjänstens titel kunde inte identifieras automatiskt.');
+    if (!meta.company) extractionWarnings.push('Arbetsgivaren kunde inte identifieras automatiskt.');
+    if (!meta.location) extractionWarnings.push('Plats kunde inte identifieras automatiskt.');
+    if (!descriptionScope) extractionWarnings.push('Sektionen "Om jobbet" hittades inte; annonstexten hämtades från en alternativ källa.');
+    if (description.length < 500) extractionWarnings.push('Annonstexten är ovanligt kort. Kontrollera att hela beskrivningen har expanderats.');
+    if (desc.mayBeIncomplete) extractionWarnings.push('LinkedIn visar fortfarande en Visa mer-kontroll. Beskrivningen kan vara ofullständig.');
     return {
       title:titleInfo.value, company:meta.company, location:meta.location, employmentType:meta.employmentType,
       description, competencies, jobSections, text,
-      diagnostics:{engine:'semantic-content-v5', jobId:getCurrentJobId(), titleSource:titleInfo.source, titleAmbiguous:Boolean(titleInfo.ambiguous), descriptionSource:desc.source, descriptionLength:description.length,
-        descriptionScore:desc.score, descriptionScoped:Boolean(desc.scoped), descriptionScopeFound:Boolean(descriptionScope), candidateCount:desc.candidates, competencyCount:competencies.length,
-        titleFound:Boolean(titleInfo.value), companyFound:Boolean(meta.company), locationFound:Boolean(meta.location),
+      diagnostics:{engine:'semantic-content-v6', jobId:getCurrentJobId(), titleSource:titleInfo.source, titleAmbiguous:Boolean(titleInfo.ambiguous), descriptionSource:desc.source, descriptionLength:description.length,
+        descriptionScore:desc.score, descriptionScoped:Boolean(desc.scoped), descriptionScopeFound:Boolean(descriptionScope), descriptionMayBeIncomplete:Boolean(desc.mayBeIncomplete), extractionWarnings,
+        candidateCount:desc.candidates, competencyCount:competencies.length, titleFound:Boolean(titleInfo.value), companyFound:Boolean(meta.company), locationFound:Boolean(meta.location),
         jsonLdFound:Boolean(posting), confidence, roots:summarizeRoots(roots), capturedAt:new Date().toISOString()}
     };
   }
