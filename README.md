@@ -11,7 +11,7 @@ En Manifest V3-extension som läser en LinkedIn-jobbannons, analyserar en Google
 ## Viktiga egenskaper
 
 - Högerklicksmenyn **Anpassa till CV** visas på `linkedin.com/jobs/*`.
-- Mallens dokument-ID anges i Inställningar. Förifylld testmall: `https://docs.google.com/document/d/1GoyOIz18axvOWhtDIrsHuCVlwu5BkyPIGQdGGukg03Y/edit`.
+- Mallens dokument-ID anges i Inställningar. 
 - Redigeringssektioner identifieras dynamiskt med `[TAG]text[/TAG]`.
 - Endast texten mellan matchande taggar skickas som redigeringsbart innehåll till Gemini.
 - Text utanför taggarna används endast som faktaunderlag och skrivs inte om.
