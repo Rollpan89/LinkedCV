@@ -235,7 +235,13 @@ async function callGeminiJson({ apiKey, modelOrder, systemInstruction, userPaylo
         } catch {
           throw new Error("Gemini returnerade ett ogiltigt JSON-svar. Försök igen.");
         }
-        return { parsed, modelUsed: candidateModel };
+        await recordModelResult(candidateModel, true);
+        return {
+          parsed,
+          modelUsed: candidateModel,
+          finishReason: attemptData?.candidates?.[0]?.finishReason || "",
+          blockReason: attemptData?.promptFeedback?.blockReason || ""
+        };
       }
       const detail = String(attemptData?.error?.message || `HTTP ${response.status}`).slice(0, 240);
       if (response.status === 429) {
@@ -255,6 +261,7 @@ async function callGeminiJson({ apiKey, modelOrder, systemInstruction, userPaylo
       }
       if (attempt < GEMINI_MAX_ATTEMPTS - 1) await sleep(retryDelayMs(attempt, response));
     }
+    await recordModelResult(candidateModel, false);
   }
   const details = [
     ...failures,
@@ -299,32 +306,145 @@ Svara ENDAST med giltig JSON:
 {"sections":[{"tag":"TAGNAMN","text":"ny eller oförändrad text","reason":"kort motivering"}]}
 Returnera exakt en post per redigerbar sektion och använd exakt samma taggnamn.`;
 
-function validateJobAnalysis(items) {
-  if (!Array.isArray(items) || !items.length) throw new Error("Gemini returnerade ingen kravprofil. Försök igen.");
-  if (items.length > 80) throw new Error("Gemini returnerade orimligt många krav. Försök igen.");
-  for (const item of items) {
-    if (!item || typeof item.name !== "string" || !item.name.trim()) throw new Error("Gemini returnerade ett krav utan namn. Försök igen.");
-    if (!CATEGORIES.includes(item.category)) throw new Error("Gemini returnerade en okänd kategori i kravprofilen. Försök igen.");
-    if (!IMPORTANCE_LEVELS.includes(item.importance)) throw new Error("Gemini returnerade en okänd prioritet i kravprofilen. Försök igen.");
-    if (!SUPPORT_STATUSES.includes(item.status)) throw new Error("Gemini returnerade en okänd stödstatus i kravprofilen. Försök igen.");
+const MAX_REQUIREMENTS = 80;
+
+const normalizeKey = value => String(value ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+const allowList = values => Object.fromEntries(values.map(value => [value, value]));
+
+/**
+ * Gemini följer oftast schemat men inte alltid: kategorier kan komma som "Technical",
+ * "verktyg" eller "teknikstack". Kategori och prioritet är presentation och normaliseras
+ * därför till närmaste kända värde. Status styr om en kompetens får väljas, så en okänd
+ * status behandlas som "saknar belägg" — hellre försiktigt än att släppa in något CV:t
+ * inte styrker. Tidigare avvisades hela analysen av en enda avvikande sträng.
+ */
+const CATEGORY_ALIASES = {
+  ...allowList(CATEGORIES),
+  tech: "technical",
+  teknik: "technical",
+  tekniska: "technical",
+  technical_skills: "technical",
+  tool: "tools",
+  verktyg: "tools",
+  plattformar: "tools",
+  platforms: "tools",
+  method: "methods",
+  metod: "methods",
+  metoder: "methods",
+  arbetssatt: "methods",
+  arbetssätt: "methods",
+  soft_skills: "personal",
+  mjuk_kompetens: "personal",
+  mjuka_kompetenser: "personal",
+  personliga_kompetenser: "personal",
+  personliga: "personal",
+  erfarenhet: "experience",
+  yrkeserfarenhet: "experience",
+  utbildning: "education",
+  ansvar: "responsibility",
+  arbetsuppgifter: "responsibility",
+  ovrigt: "other",
+  övrigt: "other",
+  misc: "other"
+};
+
+const IMPORTANCE_ALIASES = {
+  ...allowList(IMPORTANCE_LEVELS),
+  krav: "required",
+  obligatorisk: "required",
+  must: "required",
+  meriterande: "preferred",
+  nice_to_have: "preferred",
+  optional: "preferred",
+  teknikstack: "stack",
+  tech_stack: "stack",
+  kontext: "context"
+};
+
+const STATUS_ALIASES = {
+  ...allowList(SUPPORT_STATUSES),
+  belagt: "supported",
+  partial: "transferable",
+  delvis: "transferable",
+  delvis_belagt: "transferable",
+  related: "transferable",
+  missing: "not_found",
+  saknas: "not_found",
+  notfound: "not_found"
+};
+
+const REQUIREMENT_KEYS = new Set(["jobanalysis", "job_analysis", "requirements", "requirementprofile", "analysis", "items"]);
+
+const looksLikeRequirements = list => list.some(item => item && typeof item === "object" && "name" in item);
+
+/**
+ * Modellen lägger oftast listan under jobAnalysis, men ibland på toppnivå, under
+ * job_analysis/requirements eller i ett omslagsobjekt. En lista under en känd nyckel
+ * godtas även om den är tom, så att felet kan förklaras i stället för att bara kastas.
+ */
+function findRequirementsArray(value, depth = 0) {
+  if (depth > 2 || !value || typeof value !== "object") return null;
+  if (Array.isArray(value)) return looksLikeRequirements(value) ? value : null;
+  const entries = Object.entries(value);
+  for (const [key, nested] of entries) {
+    if (REQUIREMENT_KEYS.has(key.toLowerCase()) && Array.isArray(nested)) return nested;
   }
-  return items;
+  for (const [, nested] of entries) {
+    const found = findRequirementsArray(nested, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+function validateJobAnalysis(items, context = {}) {
+  if (!Array.isArray(items)) {
+    const parsed = context.parsed;
+    const keys = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? Object.keys(parsed) : [];
+    throw modelFailureError("Gemini returnerade ingen kravprofil.", [
+      keys.length ? `Svaret innehöll nycklarna: ${keys.join(", ")}.` : "Svaret innehöll ingen lista med krav.",
+      context.finishReason ? `Slutorsak från Gemini: ${context.finishReason}.` : "",
+      context.blockReason ? `Svaret blockerades: ${context.blockReason}.` : "",
+      "Prova igen, eller byt modell i Inställningarna om det upprepas."
+    ].filter(Boolean), { retryable: !context.blockReason && context.finishReason !== "SAFETY" });
+  }
+  if (!items.length) {
+    throw modelFailureError("Gemini hittade inga krav i annonsen.", [
+      "Svaret var en tom lista med krav.",
+      "Kontrollera att annonsbeskrivningen ovan är komplett — är den kort kan extraktionen från LinkedIn ha misslyckats.",
+      "Prova igen om en stund."
+    ], { retryable: true });
+  }
+  const normalized = [];
+  for (const item of items.slice(0, MAX_REQUIREMENTS)) {
+    if (!item || typeof item.name !== "string" || !item.name.trim()) continue;
+    normalized.push({
+      ...item,
+      name: item.name.trim(),
+      category: CATEGORY_ALIASES[normalizeKey(item.category)] || "other",
+      importance: IMPORTANCE_ALIASES[normalizeKey(item.importance)] || "context",
+      status: STATUS_ALIASES[normalizeKey(item.status)] || "not_found"
+    });
+  }
+  if (!normalized.length) {
+    throw modelFailureError("Gemini returnerade inga användbara krav.", ["Alla poster saknade namn."], { retryable: true });
+  }
+  return normalized;
 }
 
 export async function analyzeJob({ apiKey, model, fallbackModels = [], job, fullCvText }) {
-  const { parsed, modelUsed } = await callGeminiJson({
+  const { parsed, modelUsed, finishReason, blockReason } = await callGeminiJson({
     apiKey,
-    modelOrder: [model, ...fallbackModels],
+    modelOrder: await rankedModelOrder([model, ...fallbackModels]),
     systemInstruction: ANALYSIS_INSTRUCTION,
     userPayload: { job_ad: job, complete_cv: fullCvText }
   });
-  return { jobAnalysis: validateJobAnalysis(parsed?.jobAnalysis), modelUsed };
+  return { jobAnalysis: validateJobAnalysis(findRequirementsArray(parsed), { parsed, finishReason, blockReason }), modelUsed };
 }
 
 export async function generateSections({ apiKey, model, fallbackModels = [], preferredModel, job, fullCvText, sections, selectedRequirements = [], allowUnsupported = false }) {
   const { parsed, modelUsed } = await callGeminiJson({
     apiKey,
-    modelOrder: [preferredModel, model, ...fallbackModels],
+    modelOrder: await rankedModelOrder([preferredModel, model, ...fallbackModels]),
     systemInstruction: SECTION_INSTRUCTION,
     temperature: 0.1,
     userPayload: {
@@ -378,6 +498,221 @@ export function findUnapprovedIntroductions({ proposals, jobAnalysis, approvedNa
 
 export function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/* ------------------------------------------------------------------ *
+ * Ordmarkerad diff och skärpt fabriceringsskydd
+ * ------------------------------------------------------------------ */
+
+const TOKEN_PATTERN = /[\p{L}\p{N}][\p{L}\p{N}+#./%-]*/gu;
+const WORD_PATTERN = /\s+|[^\s]+/g;
+
+function pushDiffPart(parts, type, value) {
+  const last = parts[parts.length - 1];
+  if (last && last.type === type) last.text += value;
+  else parts.push({ type, text: value });
+}
+
+/**
+ * Ordvis diff (LCS) mellan original och förslag, så att granskningen kan visa exakt
+ * vad som lades till och togs bort. Mycket stora texter jämförs som hela block.
+ */
+export function wordDiff(before, after) {
+  const a = String(before ?? "").match(WORD_PATTERN) || [];
+  const b = String(after ?? "").match(WORD_PATTERN) || [];
+  if (a.length * b.length > 200000) {
+    return [{ type: "del", text: String(before ?? "") }, { type: "ins", text: String(after ?? "") }];
+  }
+  const table = Array.from({ length: a.length + 1 }, () => new Uint32Array(b.length + 1));
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      table[i][j] = a[i] === b[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
+    }
+  }
+  const parts = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      pushDiffPart(parts, "same", a[i]);
+      i++;
+      j++;
+    } else if (table[i + 1][j] >= table[i][j + 1]) {
+      pushDiffPart(parts, "del", a[i]);
+      i++;
+    } else {
+      pushDiffPart(parts, "ins", b[j]);
+      j++;
+    }
+  }
+  while (i < a.length) pushDiffPart(parts, "del", a[i++]);
+  while (j < b.length) pushDiffPart(parts, "ins", b[j++]);
+  return parts;
+}
+
+function isSentenceStart(text, index) {
+  for (let position = index - 1; position >= 0; position--) {
+    if (/\s/.test(text[position])) continue;
+    return /[.!?:]/.test(text[position]);
+  }
+  return true;
+}
+
+/**
+ * Skyddsnät utöver kompetensnamnen: årtal, siffror och egennamn som läggs till men
+ * varken finns i originaltexten, CV:t eller annonsen är typiska spår av påhittad
+ * erfarenhet. Siffror blockeras, egennamn varnas om.
+ */
+export function findUnverifiedAdditions({ tag, original = "", proposal = "", cvText = "", jobText = "" }) {
+  const known = `${original}\n${cvText}\n${jobText}`.toLowerCase();
+  const inserted = wordDiff(original, proposal)
+    .filter(part => part.type === "ins")
+    .map(part => part.text)
+    .join(" ");
+  const findings = [];
+  const seen = new Set();
+  for (const match of inserted.matchAll(TOKEN_PATTERN)) {
+    const token = match[0].replace(/[.,;:]+$/, "");
+    if (token.length < 2 || seen.has(token)) continue;
+    const hasDigit = /\d/.test(token);
+    const capitalized = /^[\p{Lu}ÅÄÖ]/u.test(token);
+    if (!hasDigit && !capitalized) continue;
+    if (known.includes(token.toLowerCase())) continue;
+    // Ett versalt ord i början av en mening är oftast bara meningsstart, inte ett egennamn.
+    const techLike = hasDigit || token === token.toUpperCase();
+    if (capitalized && !techLike && isSentenceStart(inserted, match.index)) continue;
+    seen.add(token);
+    findings.push({ tag, term: token, severity: hasDigit ? "block" : "warn" });
+  }
+  return findings;
+}
+
+/* ------------------------------------------------------------------ *
+ * Inställningar, modellstatistik och datastyrning
+ * ------------------------------------------------------------------ */
+
+/**
+ * Inställningarna ligger lokalt (API-nyckeln får aldrig lämna datorn) och, utan nyckel,
+ * även i chrome.storage.sync så att man slipper mata in allt igen på en ny dator.
+ */
+/**
+ * Lägger till eller tar bort en dygnsgräns för en modell utan att röra andra modellers
+ * gränser. Arbetar på en kopia så att anroparens objekt aldrig muteras.
+ */
+export function withDailyLimit(dailyLimits, model, limit) {
+  const next = { ...(dailyLimits || {}) };
+  const value = Math.floor(Number(limit));
+  if (Number.isFinite(value) && value > 0) next[model] = value;
+  else delete next[model];
+  return next;
+}
+
+export async function readSettings() {
+  const local = await chrome.storage.local.get(["settings", "settingsStamp"]).catch(() => ({}));
+  const synced = await chrome.storage.sync.get(["settings", "settingsStamp"]).catch(() => ({}));
+  const localSettings = local?.settings || {};
+  // Inställningarna sparas som ett snapshot med en tidsstämpel per lagring.
+  const localStamp = Number(local?.settingsStamp) || 0;
+  const syncedStamp = Number(synced?.settingsStamp) || 0;
+  // Bara synkade värden som är nyare än de lokala får slå igenom. En misslyckad
+  // sync-skrivning lämnar gamla värden kvar i sync, och de får aldrig rulla tillbaka
+  // en ändring som redan sparats lokalt. API-nyckeln hämtas alltid lokalt.
+  // Saknas lokala inställningar helt (ny profil, eller en sync-post från en äldre version
+  // utan tidsstämpel) finns inget att skydda och då gäller synken.
+  const useSynced = syncedStamp > localStamp || (!local?.settings && Boolean(synced?.settings));
+  return { ...localSettings, ...(useSynced ? synced?.settings || {} : {}), apiKey: localSettings.apiKey || "" };
+}
+
+export async function writeSettings(settings) {
+  const { apiKey = "", ...syncable } = settings;
+  const stamp = Date.now();
+  await chrome.storage.local.set({ settings: { ...syncable, apiKey }, settingsStamp: stamp });
+  try {
+    await chrome.storage.sync.set({ settings: syncable, settingsStamp: stamp });
+  } catch {
+    // Synk är bekvämlighet. Ändringen ligger kvar lokalt med sin tidsstämpel och kan
+    // därför inte skrivas över av äldre värden som blev kvar i sync.
+  }
+}
+
+export async function clearAnalysisCache() {
+  await chrome.storage.local.remove("jobAnalyses");
+}
+
+export async function clearUsageCounter() {
+  await chrome.storage.local.remove("geminiUsage");
+}
+
+export async function readModelStats() {
+  try {
+    const { modelStats = {} } = await chrome.storage.local.get("modelStats");
+    return modelStats;
+  } catch {
+    return {};
+  }
+}
+
+export async function recordModelResult(modelId, ok) {
+  try {
+    const stats = await readModelStats();
+    const entry = stats[modelId] || { ok: 0, fail: 0 };
+    if (ok) entry.ok += 1;
+    else entry.fail += 1;
+    stats[modelId] = entry;
+    await chrome.storage.local.set({ modelStats: stats });
+  } catch {
+    // Statistik är en optimering och får aldrig stoppa ett anrop.
+  }
+}
+
+/**
+ * Ordnar modellerna efter hur ofta de faktiskt svarat. Ett svagt prior (1 av 2) gör att
+ * en enstaka motgång inte kastar om listan, och lika resultat behåller användarens ordning.
+ */
+export async function rankedModelOrder(modelIds) {
+  const unique = [...new Set(modelIds.filter(id => FREE_MODEL_IDS.has(id)))];
+  const stats = await readModelStats();
+  return unique
+    .map((id, index) => {
+      const { ok = 0, fail = 0 } = stats[id] || {};
+      return { id, index, score: (ok + 1) / (ok + fail + 2) };
+    })
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map(entry => entry.id);
+}
+
+/* ------------------------------------------------------------------ *
+ * Mallkontroll (onboarding)
+ * ------------------------------------------------------------------ */
+
+const TEMPLATE_SECTIONS = [
+  ["PROFIL", "profil|sammanfattning|summary|om mig|objective", "Profil/sammanfattning"],
+  ["ERFARENHET", "erfarenhet|arbetslivserfarenhet|experience|anställningar|tjänster", "Erfarenhet"],
+  ["UTBILDNING", "utbildning|education|studier", "Utbildning"],
+  ["KOMPETENS", "kompetens|kompetenser|färdigheter|skills|tekniska färdigheter", "Kompetenser"],
+  ["PROJEKT", "projekt|projects", "Projekt"],
+  ["CERTIFIERING", "certifiering|certifieringar|certifications|kurser|courses", "Certifieringar"],
+  ["SPRAK", "språk|sprak|languages", "Språk"],
+  ["OVRIGT", "övrigt|ovrigt|intressen|referenser|other", "Övrigt"]
+];
+
+/**
+ * Läser mallen och sammanfattar vad som är taggat och vilka rubriker som ser ut som
+ * sektioner men saknar taggar. Originalmallen ändras aldrig — förslagen är text att klistra in.
+ */
+export function summarizeTemplate(doc) {
+  const parsed = parseTemplate(doc);
+  const content = documentText(doc) || "";
+  const missingHeadings = TEMPLATE_SECTIONS
+    .map(([tag, pattern, label]) => ({ tag, label, pattern }))
+    .filter(({ pattern }) => new RegExp(`(?:^|\\n)\\s*(?:${pattern})\\s*:?\\s*(?:\\n|$)`, "i").test(content))
+    .filter(({ tag }) => !parsed.sections.some(section => section.tag === tag))
+    .map(({ tag, label }) => ({ tag, label }));
+  return {
+    sections: parsed.sections.map(section => ({ tag: section.tag, text: section.original })),
+    errors: parsed.errors,
+    missingHeadings
+  };
 }
 
 /* ------------------------------------------------------------------ *

@@ -1,8 +1,8 @@
-import { DEFAULT_MODEL, DEFAULT_FALLBACK_MODELS, FREE_GEMINI_MODELS } from "./shared.js";
+import { DEFAULT_MODEL, DEFAULT_FALLBACK_MODELS, FREE_GEMINI_MODELS, clearAnalysisCache, clearUsageCounter, extractDocId, getDoc, readSettings, summarizeTemplate, withDailyLimit, writeSettings } from "./shared.js";
 
 const $ = id => document.getElementById(id);
 async function load() {
-  const { settings = {} } = await chrome.storage.local.get("settings");
+  const settings = await readSettings();
   $("templateUrl").value = settings.templateUrl || "";
   $("apiKey").value = settings.apiKey || "";
   $("allowUnsupportedSkills").checked = Boolean(settings.allowUnsupportedSkills);
@@ -18,20 +18,60 @@ $("save").addEventListener("click", async () => {
   const model = allowed.has($("model").value) ? $("model").value : DEFAULT_MODEL;
   const fallbackModels = [$("fallbackModel1").value, $("fallbackModel2").value]
     .filter((id, index, all) => allowed.has(id) && id !== model && all.indexOf(id) === index);
-  const { settings: existing = {} } = await chrome.storage.local.get("settings");
-  const dailyLimits = { ...(existing.dailyLimits || {}) };
-  const limit = Math.floor(Number($("dailyLimit").value));
-  if (Number.isFinite(limit) && limit > 0) dailyLimits[model] = limit;
-  else delete dailyLimits[model];
+  // Läs via readSettings så att en nyare synkad gräns för en annan modell inte
+  // skrivs över av den lokala kopian när formuläret sparas.
+  const existing = await readSettings();
+  const dailyLimits = withDailyLimit(existing.dailyLimits, model, $("dailyLimit").value);
   const settings = { templateUrl: $("templateUrl").value.trim(), apiKey: $("apiKey").value.trim(), model, fallbackModels, allowUnsupportedSkills: $("allowUnsupportedSkills").checked, dailyLimits };
   if (settings.templateUrl && !/docs\.google\.com\/document\/d\//.test(settings.templateUrl)) {
     $("saveStatus").textContent = "Ange en giltig Google Docs-länk."; return;
   }
-  await chrome.storage.local.set({ settings });
+  await writeSettings(settings);
   $("saveStatus").textContent = "Inställningarna är sparade.";
 });
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
+}
+
+$("checkTemplate").addEventListener("click", async () => {
+  const output = $("templateCheck");
+  output.hidden = false;
+  output.textContent = "Hämtar mallen…";
+  try {
+    const doc = await getDoc(extractDocId($("templateUrl").value.trim()));
+    const summary = summarizeTemplate(doc);
+    const parts = [];
+    if (summary.errors.length) {
+      parts.push(`<p class="hint"><strong>Mallen kan inte användas:</strong><br>${summary.errors.map(escapeHtml).join("<br>")}</p>`);
+    }
+    parts.push(summary.sections.length
+      ? `<p><strong>${summary.sections.length} taggade sektioner hittades:</strong> ${summary.sections.map(section => `<code>[${escapeHtml(section.tag)}]</code>`).join(" ")}</p>`
+      : "<p><strong>Inga taggade sektioner hittades.</strong> Lägg till taggar enligt listan nedan.</p>");
+    if (summary.missingHeadings.length) {
+      parts.push(`<p class="hint">Rubriker som ser ut som sektioner men saknar taggar:</p><ul class="rules">${summary.missingHeadings.map(heading => `<li>${escapeHtml(heading.label)}: lägg <code>[${heading.tag}]</code> före texten och <code>[/${heading.tag}]</code> efter.</li>`).join("")}</ul>`);
+      parts.push(`<p class="hint">Taggar får bara finnas i mallen. All text utanför taggarna lämnas orörd i den färdiga kopian.</p>`);
+    }
+    output.innerHTML = parts.join("");
+  } catch (error) {
+    output.textContent = error.message || String(error);
+  }
+});
+
+$("clearAnalyses").addEventListener("click", async () => {
+  await clearAnalysisCache();
+  $("dataStatus").textContent = "De cachade kravanalyserna är rensade.";
+});
+$("clearUsage").addEventListener("click", async () => {
+  await clearUsageCounter();
+  $("dataStatus").textContent = "Anropsräknaren är nollställd.";
+});
+$("clearHistory").addEventListener("click", async () => {
+  await chrome.storage.local.set({ history: [] });
+  $("dataStatus").textContent = "Historiken är rensad.";
+});
+
 $("model").addEventListener("change", async () => {
-  const { settings = {} } = await chrome.storage.local.get("settings");
+  const settings = await readSettings();
   $("dailyLimit").value = settings.dailyLimits?.[$("model").value] || "";
 });
 $("connectGoogle").addEventListener("click", async () => {

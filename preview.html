@@ -1,176 +1,39 @@
-<!doctype html>
-<html lang="sv">
-    <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width,initial-scale=1" />
-        <title>Granska CV-ändringar</title>
-        <link rel="stylesheet" href="styles.css" />
-    </head>
-    <body class="page">
-        <main class="preview-wrap">
-            <header class="brand">
-                <div class="brand-mark">CV</div>
-                <div>
-                    <h1>Granska CV-anpassning</h1>
-                    <p>
-                        Ändringar föreslås – inget dokument skapas förrän du
-                        godkänner.
-                    </p>
-                </div>
-            <div id="usageCounter" class="usage-counter" hidden></div>
+<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Granska CV-ändringar</title><link rel="stylesheet" href="styles.css"></head>
+<body class="page"><main class="preview-wrap"><header class="brand"><div class="brand-mark">CV</div><div><h1>Granska CV-anpassning</h1><p>Ändringar föreslås – inget dokument skapas förrän du godkänner.</p></div><div id="usageCounter" class="usage-counter" title="Dagens Gemini-anrop"><strong>0</strong><span>anrop idag</span></div>
 </header>
-            <section
-                id="loading"
-                class="panel progress-panel"
-                aria-live="polite"
-                aria-busy="true"
-            >
-                <div class="progress-heading">
-                    <strong id="progressTitle">Förbereder analysen…</strong
-                    ><strong id="progressPercent">0 %</strong>
-                </div>
-                <div
-                    class="progress-track"
-                    role="progressbar"
-                    aria-label="Genomförda analyssteg"
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                    aria-valuenow="0"
-                    id="progressBar"
-                >
-                    <div id="progressFill" class="progress-fill"></div>
-                </div>
-                <p id="progressDetail" class="progress-detail">
-                    Startar CV-anpassningen.
-                </p>
-                <p class="progress-note">
-                    Procenten visar avslutade arbetssteg, inte uppskattad
-                    återstående tid. Den står still medan externa tjänster
-                    arbetar.
-                </p>
-            </section>
-            <div id="error" class="error-box" hidden></div>
-            <div id="content" hidden>
-                <section class="panel job-summary">
-                    <span class="eyebrow">JOBBANNONS</span>
-                    <h2 id="jobTitle"></h2>
-                    <p id="jobCompany"></p>
-                    <a id="jobLink" target="_blank" rel="noreferrer"
-                        >Öppna annons ↗</a
-                    >
-                    <div id="captureInfo" class="capture-info"></div>
-                </section>
-                <section
-                    id="extractionPanel"
-                    class="panel extraction-panel"
-                    hidden
-                >
-                    <div class="section-head">
-                        <div>
-                            <span class="eyebrow">EXTRAKTIONSSTATUS</span>
-                            <h2>Delar att kontrollera</h2>
-                        </div>
-                        <span class="pill">Information</span>
-                    </div>
-                    <p class="hint">
-                        Dessa brister stoppar inte analysen. Kontrollera
-                        annonsen om någon viktig del saknas.
-                    </p>
-                    <ul
-                        id="extractionWarnings"
-                        class="extraction-warnings"
-                    ></ul>
-                </section>
-                <section id="requirementsPanel" class="panel" hidden>
-                    <div class="section-head">
-                        <div>
-                            <span class="eyebrow">KOMPETENSVAL</span>
-                            <h2>Vad arbetsgivaren efterfrågar</h2>
-                        </div>
-                        <div class="head-actions">
+<section id="loading" class="panel progress-panel" aria-live="polite" aria-busy="true">
+  <div class="progress-heading"><strong id="progressTitle">Förbereder analysen…</strong><strong id="progressPercent">0 %</strong></div>
+  <div class="progress-track" role="progressbar" aria-label="Genomförda analyssteg" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progressBar"><div id="progressFill" class="progress-fill"></div></div>
+  <p id="progressDetail" class="progress-detail">Startar CV-anpassningen.</p>
+  <p class="progress-note">Procenten visar avslutade arbetssteg, inte uppskattad återstående tid. Den står still medan externa tjänster arbetar.</p>
+</section>
+<div id="error" class="error-box" hidden></div>
+<div id="content" hidden>
+  <section class="panel job-summary"><span class="eyebrow">JOBBANNONS</span><h2 id="jobTitle"></h2><p id="jobCompany"></p><a id="jobLink" target="_blank" rel="noreferrer">Öppna annons ↗</a><div id="captureInfo" class="capture-info"></div>
+<button id="copyDiagnostics" class="link-button" type="button">Kopiera diagnostik</button></section>
+  <section id="extractionPanel" class="panel extraction-panel" hidden><div class="section-head"><div><span class="eyebrow">EXTRAKTIONSSTATUS</span><h2>Delar att kontrollera</h2></div><span class="pill">Information</span></div><p class="hint">Dessa brister stoppar inte analysen. Kontrollera annonsen om någon viktig del saknas.</p><ul id="extractionWarnings" class="extraction-warnings"></ul></section>
+  <section id="requirementsPanel" class="panel" hidden>
+    <div class="section-head"><div><span class="eyebrow">KOMPETENSVAL</span><h2>Vad arbetsgivaren efterfrågar</h2></div><div class="head-actions">
 <span id="selectionCount" class="pill"></span>
 <button id="reanalyze" class="link-button" type="button">Analysera om</button>
-</div>
-                    </div>
-                    <p class="hint">
-                        Välj vilka punkter CV-anpassningen får bygga på. Inget
-                        förs in i CV:t utan ditt val, och erfarenheter
-                        fabriceras aldrig.
-                    </p>
+</div></div>
+    <p class="hint">Välj vilka punkter CV-anpassningen får bygga på. Inget förs in i CV:t utan ditt val, och erfarenheter fabriceras aldrig.</p>
 <div id="analysisError" class="error-box" hidden></div>
-                    <p id="unsupportedNotice" class="notice" hidden></p>
-                    <div class="row">
-                        <button
-                            id="selectSupported"
-                            class="secondary"
-                            type="button"
-                        >
-                            Välj alla med stöd</button
-                        ><button
-                            id="clearSelection"
-                            class="secondary"
-                            type="button"
-                        >
-                            Rensa val
-                        </button>
-                    </div>
-                    <div id="requirementsList" class="job-analysis-list"></div>
-                    <div class="actions">
-                        <button
-                            id="generate"
-                            class="primary"
-                            type="button"
-                            disabled
-                        >
-                            Generera textförslag</button
-                        ><span
-                            id="generateStatus"
-                            class="status"
-                            aria-live="polite"
-                        ></span>
-                    </div>
-                </section>
-                <section id="proposalPanel" class="panel" hidden>
-                    <div class="section-head">
-                        <div>
-                            <span class="eyebrow">FÖRHANDSGRANSKNING</span>
-                            <h2>Föreslagna ändringar</h2>
-                        </div>
-                        <span id="changeCount" class="pill"></span>
-                    </div>
-                    <p class="hint">
-                        Redigera den föreslagna texten direkt i fältet. Endast
-                        text inom taggade sektioner skrivs till kopian och
-                        taggarna tas bort.
-                    </p>
-                    <div id="staleNotice" class="notice" hidden>
-                        Du har ändrat kompetensvalen efter att förslagen
-                        skapades. Generera om förslagen om de nya valen ska
-                        påverka texten.
-                    </div>
-                    <div id="diffs"></div>
-                    <div id="noChanges" class="empty" hidden>
-                        <strong>Inga innehållsändringar behövs.</strong
-                        ><span
-                            >Taggarna tas ändå bort i den färdiga kopian.</span
-                        >
-                    </div>
-                </section>
-                <div id="createError" class="error-box" hidden></div>
-                <div class="sticky-actions">
-                    <button id="create" class="primary" type="button" disabled>
-                        Godkänn och skapa CV</button
-                    ><button id="cancel" class="secondary" type="button">
-                        Avbryt
-                    </button>
-                </div>
-                <p class="footnote">
-                    Endast text inom taggade sektioner kan ändras. All annan
-                    CV-text lämnas orörd. Kompetenser utan belägg läggs aldrig
-                    automatiskt till.
-                </p>
-            </div>
-        </main>
-        <script src="preview.js" type="module"></script>
-    </body>
-</html>
+    <p id="unsupportedNotice" class="notice" hidden></p>
+    <div class="row"><button id="selectSupported" class="secondary" type="button">Välj alla med stöd</button><button id="clearSelection" class="secondary" type="button">Rensa val</button></div>
+    <div id="requirementsList" class="job-analysis-list"></div>
+    <div class="actions"><button id="generate" class="primary" type="button" disabled>Generera textförslag</button><span id="generateStatus" class="status" aria-live="polite"></span></div>
+  </section>
+  <section id="proposalPanel" class="panel" hidden>
+    <div class="section-head"><div><span class="eyebrow">FÖRHANDSGRANSKNING</span><h2>Föreslagna ändringar</h2></div><span id="changeCount" class="pill"></span></div>
+    <p class="hint">Redigera den föreslagna texten direkt i fältet. Endast text inom taggade sektioner skrivs till kopian och taggarna tas bort.</p>
+    <div id="staleNotice" class="notice" hidden>Du har ändrat kompetensvalen efter att förslagen skapades. Generera om förslagen om de nya valen ska påverka texten.</div>
+<p id="additionWarnings" class="notice" hidden></p>
+    <div id="diffs"></div>
+    <div id="noChanges" class="empty" hidden><strong>Inga innehållsändringar behövs.</strong><span>Taggarna tas ändå bort i den färdiga kopian.</span></div>
+  </section>
+  <div id="createError" class="error-box" hidden></div>
+  <div class="sticky-actions"><button id="create" class="primary" type="button" disabled>Godkänn och skapa CV</button><button id="cancel" class="secondary" type="button">Avbryt</button></div>
+  <p class="footnote">Endast text inom taggade sektioner kan ändras. All annan CV-text lämnas orörd. Kompetenser utan belägg läggs aldrig automatiskt till.</p>
+</div>
+</main><script src="preview.js" type="module"></script></body></html>

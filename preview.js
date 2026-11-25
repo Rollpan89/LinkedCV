@@ -1,8 +1,11 @@
 import {
   analyzeJob,
   analysisFingerprint,
+  findUnverifiedAdditions,
   FREE_GEMINI_MODELS,
   readGeminiUsage,
+  readSettings,
+  wordDiff,
   generateSections,
   extractDocId,
   getDoc,
@@ -120,9 +123,8 @@ async function refreshUsageCounter() {
   if (!element) return;
   const total = Object.values(usage.counts).reduce((sum, value) => sum + value, 0);
   const model = state.settings.model;
-  const limit = usage.limits[model];
+  const limit = usage.limits[model] || Number(state.settings.dailyLimits?.[model]) || 0;
   const usedForModel = usage.counts[model] || 0;
-  element.hidden = false;
   element.replaceChildren();
   const strong = document.createElement("strong");
   strong.textContent = String(total);
@@ -256,7 +258,11 @@ function renderProposals() {
       </div>
       <p class="reason">${esc(proposal?.reason || "Anpassning föreslagen utifrån de valda kraven.")}</p>
       ${warnings.length ? `<ul class="section-warning">${warnings.map(item => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}
-      <button type="button" class="link-button" data-reset="${esc(section.tag)}">Återställ Gemini-förslaget</button>
+      <div class="word-diff" data-diff="${esc(section.tag)}"></div>
+      <div class="diff-actions">
+        <button type="button" class="link-button" data-regenerate="${esc(section.tag)}">Generera om den här sektionen</button>
+        <button type="button" class="link-button" data-reset="${esc(section.tag)}">Återställ Gemini-förslaget</button>
+      </div>
     </article>`;
   }).join("");
   refreshProposalSummary();
@@ -277,6 +283,49 @@ function refreshProposalSummary() {
   $("changeCount").textContent = `${changed} ändringar`;
   $("noChanges").hidden = changed > 0;
   $("create").disabled = !state.proposals || state.creating;
+  for (const section of state.sections) updateWordDiff(section.tag);
+  renderAdditionWarnings();
+}
+
+function updateWordDiff(tag) {
+  const target = document.querySelector(`.word-diff[data-diff="${CSS.escape(tag)}"]`);
+  const section = state.sections.find(item => item.tag === tag);
+  if (!target || !section) return;
+  target.replaceChildren(...wordDiff(section.original, approvedText(tag)).map(part => {
+    if (part.type === "same") return document.createTextNode(part.text);
+    const element = document.createElement(part.type === "del" ? "del" : "ins");
+    element.textContent = part.text;
+    return element;
+  }));
+}
+
+/**
+ * Årtal och siffror som dyker upp i förslaget utan stöd i CV:t eller annonsen blockeras
+ * när CV:t skapas. Egennamn som inte känns igen visas som en varning att granska.
+ */
+function unverifiedAdditions(proposals) {
+  return proposals.flatMap(proposal => {
+    const section = state.sections.find(item => item.tag === proposal.tag);
+    return findUnverifiedAdditions({
+      tag: proposal.tag,
+      original: section?.original || "",
+      proposal: proposal.text,
+      cvText: state.fullCvText,
+      jobText: state.job?.description || state.job?.text || ""
+    });
+  });
+}
+
+function renderAdditionWarnings() {
+  const element = $("additionWarnings");
+  if (!element) return;
+  const terms = [...new Set(unverifiedAdditions(finalProposals())
+    .filter(item => item.severity === "warn")
+    .map(item => item.term))];
+  element.hidden = terms.length === 0;
+  element.textContent = terms.length
+    ? `Kontrollera innan du godkänner: ${terms.join(", ")} nämns i förslaget men finns inte i CV:t eller annonsen.`
+    : "";
 }
 
 /* ---------------- Cachad kravanalys ---------------- */
@@ -307,9 +356,9 @@ async function init() {
   $("loading").setAttribute("aria-busy", "true");
   setProgress(0, "Startar CV-anpassningen", "Kontrollerar annonsen och dina inställningar.");
   try {
-    const [{ pendingJob }, { settings = {} }] = await Promise.all([
+    const [{ pendingJob }, settings] = await Promise.all([
       chrome.storage.session.get("pendingJob"),
-      chrome.storage.local.get("settings")
+      readSettings()
     ]);
     if (!pendingJob) throw new Error("Ingen jobbannons hittades. Gå tillbaka till LinkedIn och välj Anpassa till CV i högerklicksmenyn.");
     if (!settings.apiKey) throw new Error("Lägg till din Gemini API-nyckel i tilläggets inställningar först.");
@@ -333,7 +382,7 @@ async function init() {
       diagnostics.jobId && `Annons-ID: ${diagnostics.jobId}`,
       `Säkerhetsbedömning: ${diagnostics.confidence ?? 0} %`
     ].filter(Boolean).join(" · ");
-    setProgress(20, "Annons och inställningar klara", "Hämtar CV-mallen från Google Docs. Inloggning kan behövas.");
+    setProgress(33, "Annons och inställningar klara", "Hämtar CV-mallen från Google Docs. Inloggning kan behövas.");
 
     const originalDoc = await getDoc(state.templateId);
     const parsed = parseTemplate(originalDoc);
@@ -346,14 +395,14 @@ async function init() {
       multiParagraph: section.multiParagraph
     }));
     state.fullCvText = stripTags(parsed.containers.map(container => container.paragraphs.map(paragraph => paragraph.text).join("")).join("\n"));
-    setProgress(40, "CV-mallen analyserad", `${state.sections.length} redigerbara sektioner hittades.`);
+    setProgress(66, "CV-mallen analyserad", `${state.sections.length} redigerbara sektioner hittades. Nästa steg är kravanalysen.`);
 
     const fingerprint = analysisKey();
     let analysis = await readCachedAnalysis(fingerprint);
     if (analysis) {
       state.statusMessage = `Kravprofilen återanvänds från en tidigare analys med ${analysis.modelUsed}.`;
     } else {
-      setProgress(45, "Analyserar annonsen", "Skickar annons och CV till Gemini för kravanalys. Det här anropet kan inte återanvändas förrän annonsen är analyserad.");
+      setProgress(66, "Analyserar annonsen", "Skickar annons och CV till Gemini för kravanalys. Det här anropet kan inte återanvändas förrän annonsen är analyserad.");
       const fresh = await analyzeJob({
         apiKey: settings.apiKey,
         model: settings.model,
@@ -370,9 +419,11 @@ async function init() {
 
     selectSupportedOnly();
     renderRequirements();
-    setProgress(60, "Kravprofilen är klar", "Välj vilka krav CV-anpassningen får bygga på och generera sedan textförslag.");
+    setProgress(100, "Analysen är klar", "Välj vilka krav CV-anpassningen får bygga på och generera sedan textförslag.");
     await refreshUsageCounter();
 
+    // Låt det avslutade steget synas en kort stund innan panelen stängs.
+    await new Promise(resolve => setTimeout(resolve, 400));
     $("loading").setAttribute("aria-busy", "false");
     $("loading").hidden = true;
     $("content").hidden = false;
@@ -381,10 +432,28 @@ async function init() {
   }
 }
 
+async function quotaShortfall(needed) {
+  const usage = await readGeminiUsage();
+  const model = state.settings.model;
+  const limit = usage.limits[model] || Number(state.settings.dailyLimits?.[model]) || 0;
+  if (!limit) return null;
+  const left = Math.max(0, limit - (usage.counts[model] || 0));
+  return left < needed ? left : null;
+}
+
+function quotaMessage(left, needed) {
+  return `Dagens kvot för ${modelLabel(state.settings.model)} räcker inte: ${left} anrop kvar, ${needed} behövs. Räknaren nollställs vid midnatt Pacific time, och Google visar den exakta gränsen i AI Studio → Rate limits.`;
+}
+
 async function generate(skipConfirm = false) {
   const items = selectedItems();
   if (!items.length) {
     refreshSelectionSummary();
+    return;
+  }
+  const shortfall = await quotaShortfall(1);
+  if (shortfall !== null) {
+    showCreateError(quotaMessage(shortfall, 1));
     return;
   }
   if (state.edits.size) {
@@ -466,6 +535,51 @@ async function reanalyze() {
   }
 }
 
+/** Genererar om bara den valda sektionen — billigare än en ny full generering. */
+async function regenerateSection(tag) {
+  const section = state.sections.find(item => item.tag === tag);
+  const items = selectedItems();
+  if (!section || !items.length || state.busy) return;
+  const shortfall = await quotaShortfall(1);
+  if (shortfall !== null) {
+    showCreateError(quotaMessage(shortfall, 1));
+    return;
+  }
+  state.busy = true;
+  state.statusMessage = `Genererar om [${tag}]…`;
+  refreshSelectionSummary();
+  try {
+    const result = await generateSections({
+      apiKey: state.settings.apiKey,
+      model: state.settings.model,
+      fallbackModels: state.settings.fallbackModels,
+      preferredModel: state.modelUsed,
+      job: { title: state.job.title || "", company: state.job.company || "", description: state.job.description || state.job.text, diagnostics: state.job.diagnostics || {} },
+      fullCvText: state.fullCvText,
+      sections: [section],
+      selectedRequirements: items,
+      allowUnsupported: state.allowUnsupported
+    });
+    const fresh = result.sections[0];
+    state.proposals = state.proposals
+      ? state.proposals.map(item => (item.tag === tag ? { ...item, text: fresh.text, reason: fresh.reason } : item))
+      : [{ tag, text: fresh.text, reason: fresh.reason }];
+    state.edits.set(tag, fresh.text);
+    const area = document.querySelector(`textarea[data-tag="${CSS.escape(tag)}"]`);
+    if (area) area.value = fresh.text;
+    state.statusMessage = `[${tag}] är omgenererad med ${result.modelUsed}.`;
+    $("createError").hidden = true;
+    refreshProposalSummary();
+  } catch (error) {
+    state.statusMessage = "";
+    showCreateError(error, () => regenerateSection(tag));
+  } finally {
+    state.busy = false;
+    refreshSelectionSummary();
+    refreshUsageCounter();
+  }
+}
+
 function unapprovedViolations(proposals) {
   const approvedNames = state.allowUnsupported
     ? selectedItems().filter(item => item.status === "not_found").map(item => item.name)
@@ -477,6 +591,12 @@ async function create() {
   const button = $("create");
   $("createError").hidden = true;
   const proposals = finalProposals();
+  // Bara uppgifter som Gemini själv föreslagit blockeras: det användaren själv skriver in är användarens eget påstående.
+  const additions = unverifiedAdditions(proposals).filter(item => item.severity === "block" && (state.proposals || []).some(proposal => proposal.tag === item.tag && (proposal.text || "").includes(item.term)));
+  if (additions.length) {
+    showCreateError(`Gemini föreslår uppgifter som inte finns i CV:t eller annonsen: ${additions.map(item => `${item.term} (${item.tag})`).join(", ")}. Ta bort dem innan du skapar CV:t, annars vore det en påhittad erfarenhet.`);
+    return;
+  }
   const violations = unapprovedViolations(proposals);
   if (violations.length) {
     showCreateError(`Texten innehåller kompetenser som saknar belägg i CV:t och som du inte har godkänt: ${violations.map(item => `${item.name} (${item.tag})`).join(", ")}. Ta bort dem ur förslaget, eller tillåt ej styrkta kompetenser i inställningarna och välj dem medvetet.`);
@@ -547,6 +667,8 @@ $("diffs").addEventListener("input", event => {
 });
 
 $("diffs").addEventListener("click", event => {
+  const regenerate = event.target.closest("button[data-regenerate]");
+  if (regenerate) { regenerateSection(regenerate.dataset.regenerate); return; }
   const button = event.target.closest("button[data-reset]");
   if (!button) return;
   const proposal = state.proposals?.find(item => item.tag === button.dataset.reset);
@@ -559,7 +681,26 @@ $("diffs").addEventListener("click", event => {
 
 $("generate").addEventListener("click", () => generate());
 $("reanalyze").addEventListener("click", () => reanalyze());
+$("copyDiagnostics").addEventListener("click", async () => {
+  const button = $("copyDiagnostics");
+  const payload = {
+    job: { title: state.job?.title, company: state.job?.company, url: state.job?.url, location: state.job?.location, employmentType: state.job?.employmentType },
+    diagnostics: state.job?.diagnostics || {},
+    sections: state.sections.map(section => section.tag),
+    settings: { model: state.settings.model, fallbackModels: state.settings.fallbackModels },
+    usage: await readGeminiUsage()
+  };
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+    button.textContent = "Diagnostik kopierad";
+    setTimeout(() => { button.textContent = "Kopiera diagnostik"; }, 2500);
+  } catch {
+    showCreateError("Kunde inte kopiera till urklipp. Öppna konsolen och kopiera utskriften i stället.");
+    console.log(JSON.stringify(payload, null, 2));
+  }
+});
 $("create").addEventListener("click", create);
 $("cancel").addEventListener("click", () => window.close());
 
+refreshUsageCounter();
 init();

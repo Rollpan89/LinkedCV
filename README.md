@@ -2,6 +2,17 @@
 
 En Manifest V3-extension som läser en LinkedIn-jobbannons, analyserar en Google Docs-CV-mall med Gemini, visar ändringsförslag och skapar en kopia av mallen i Google Drive.
 
+## v0.4.0 – onboarding, granskning och datastyrning
+
+- **Kontrollera mallen** i Inställningar läser mallen och listar taggade sektioner samt rubriker som saknar taggar, med färdiga taggförslag. Inget skrivs till mallen.
+- **Ordmarkerad diff** per sektion: tillagd text i grönt, borttagen i rött, uppdateras när du redigerar förslaget.
+- **Generera om den här sektionen** gör ett anrop för en sektion i stället för alla, och ett anrop avbryts med förklaring om räknaren visar att dagens kvot är slut.
+- **Skärpt fabriceringsskydd**: årtal och siffror som saknas i CV:t, originalet och annonsen blockerar skapandet; nya egennamn visas som varning.
+- **Kopiera diagnostik** samlar annons, extraktionsstatus, modellval och kvotläge till urklipp.
+- **Integritet och data**: beskriver vad som lämnar datorn och låter dig rensa kravanalyser, anropsräknare och historik.
+- Inställningar synkas mellan Chrome-profiler via `chrome.storage.sync`; API-nyckeln lämnar aldrig datorn.
+- Reservmodellerna ordnas automatiskt efter vilka som faktiskt svarat, med din ordning som utgångspunkt vid lika resultat.
+
 ## v0.3.0 – strukturell Google Docs-redigering och kompetensval
 
 Den här versionen ersätter prototypens tillplattade textpositioner med dokumentets egna strukturella index och inför det kompetensval som kravbilden förutsätter.
@@ -20,6 +31,8 @@ Den här versionen ersätter prototypens tillplattade textpositioner med dokumen
 **Arbetsflöde**
 
 - Två steg hos Gemini: först en kravprofil för hela annonsen, sedan textförslag utifrån de krav användaren har valt.
+- Svarsformen tolereras: kravlistan hittas även om modellen lägger den på toppnivå eller under en annan nyckel (`job_analysis`, `requirements`, `data.requirements`). Ett tomt eller ofullständigt svar ger ett förklarande fel med svarets nycklar, Geminis slutorsak och en **Försök igen**-knapp i stället för ett rått meddelande.
+- Kravprofilen normaliseras innan den visas: kategorier och prioriteter som Gemini skriver på annat sätt ("Technical", "verktyg", "teknikstack") mappas till kända värden, och ett krav med okänd stödstatus behandlas som att det saknar belägg. Ett enskilt avvikande fält fäller alltså inte hela analysen.
 - Kravanalysen cachas per annons i `chrome.storage.local`, med annonsens text, CV-texten och vald modell i nyckeln. Öppnar du samma annons igen eller laddar om förhandsgranskningen återanvänds analysen, så "Generera om förslagen" bara gör sektionsanropet och en 503 aldrig tvingar fram en ny full analys.
 - Länken **Analysera om** i kompetensväljaren tvingar en ny kravanalys utan att läsa cachen. Valen återställs till de kompetenser som CV:t styrker, och den nya analysen sparas så nästa inläsning återanvänder den.
 - Vid 503/5xx/timeout försöker anropet igen med exponentiell backoff och jitter (1, 2, 4 sekunder, högst fyra försök per modell, `Retry-After` respekteras) innan nästa kostnadsfria modell provas. Ett 429 (kvot) försöks aldrig om — det blir inte bättre inom några sekunder och varje försök drar mer kvot — utan nästa modell provas direkt. Är alla fel tillfälliga visas en förklaring och knappen **Försök igen**; permanenta fel som ogiltig nyckel eller borttagen modell visar felet direkt.

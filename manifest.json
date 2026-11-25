@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "minimum_chrome_version": "105",
   "name": "CV Anpassaren",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Extrahera och analysera jobbkrav från LinkedIn och anpassa en kopia av ditt Google Docs-CV.",
   "key": "naeobklabmjjljdknpbjhjkoaagdihog",
   "permissions": [

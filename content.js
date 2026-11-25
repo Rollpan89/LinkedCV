@@ -304,6 +304,8 @@
     const structured = htmlText(posting?.description || '');
     if (structured.length >= 180 && (!best || structured.length >= best.value.length * 0.78)) return {value:structured, source:'JSON-LD JobPosting.description', score:20, candidates:candidates.length, scoped:false};
     if (best) return {value:best.value, source:'semantisk DOM-rangordning', score:Math.round(best.score*10)/10, candidates:candidates.length, scoped:false};
+    const metaDescription = normalize(metaContent('meta[property="og:description"]') || metaContent('meta[name="description"]') || '');
+    if (metaDescription.length > structured.length && metaDescription.length >= 60) return {value:metaDescription, source:'meta-beskrivning', score:6, candidates:candidates.length, scoped:false, mayBeIncomplete:true};
     return {value:structured, source:structured?'JSON-LD JobPosting.description':'saknas', score:structured.length>=180?20:0, candidates:candidates.length, scoped:false};
   }
   function nearbyMetadata(title, posting, titleElement = null) {
@@ -384,6 +386,7 @@
     if (!descriptionScope) extractionWarnings.push('Sektionen "Om jobbet" hittades inte; annonstexten hämtades från en alternativ källa.');
     if (description.length < 500) extractionWarnings.push('Annonstexten är ovanligt kort. Kontrollera att hela beskrivningen har expanderats.');
     if (desc.mayBeIncomplete) extractionWarnings.push('LinkedIn visar fortfarande en Visa mer-kontroll. Beskrivningen kan vara ofullständig.');
+    if (desc.source === 'meta-beskrivning') extractionWarnings.push('Annonstexten hämtades från sidans metabeskrivning och är oftast förkortad.');
     return {
       title:titleInfo.value, company:meta.company, location:meta.location, employmentType:meta.employmentType,
       description, text,
