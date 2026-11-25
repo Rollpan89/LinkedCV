@@ -3,7 +3,7 @@ import { DEFAULT_MODEL, DEFAULT_FALLBACK_MODELS, FREE_GEMINI_MODELS } from "./sh
 const $ = id => document.getElementById(id);
 async function load() {
   const { settings = {} } = await chrome.storage.local.get("settings");
-  $("templateUrl").value = settings.templateUrl || "https://docs.google.com/document/d/1GoyOIz18axvOWhtDIrsHuCVlwu5BkyPIGQdGGukg03Y/edit";
+  $("templateUrl").value = settings.templateUrl || "";
   $("apiKey").value = settings.apiKey || "";
   const allowed = new Set(FREE_GEMINI_MODELS.map(item => item.id));
   $("model").value = allowed.has(settings.model) ? settings.model : DEFAULT_MODEL;
