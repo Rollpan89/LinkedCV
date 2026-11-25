@@ -39,7 +39,6 @@ export function analysisFingerprint({ job = {}, cvText = "", model = "" } = {}) 
     job.url || "",
     job.title || "",
     job.company || "",
-    description.length,
     description,
     cvText,
     model
@@ -130,47 +129,47 @@ export function parseDailyQuotaLimit(body) {
   return null;
 }
 
-async function readUsageState() {
-  const today = pacificDateKey();
-  const { geminiUsage } = await chrome.storage.local.get("geminiUsage");
-  if (!geminiUsage || geminiUsage.date !== today) {
-    // Nytt Pacific-dygn: räkningen börjar om, men inlärda gränser behålls.
-    return { date: today, counts: {}, limits: geminiUsage?.limits || {} };
-  }
-  return { date: today, counts: geminiUsage.counts || {}, limits: geminiUsage.limits || {} };
-}
-
 /** Dagens räkning och kända dygnsgränser, per modell. */
 export async function readGeminiUsage() {
+  const today = pacificDateKey();
   try {
-    return await readUsageState();
+    const { geminiUsage } = await chrome.storage.local.get("geminiUsage");
+    const sameDay = geminiUsage?.date === today;
+    // Nytt Pacific-dygn: räkningen börjar om, men inlärda gränser behålls.
+    return {
+      date: today,
+      counts: sameDay ? geminiUsage.counts || {} : {},
+      limits: geminiUsage?.limits || {}
+    };
   } catch {
-    return { date: pacificDateKey(), counts: {}, limits: {} };
+    return { date: today, counts: {}, limits: {} };
   }
 }
 
-async function recordUsage(modelId) {
+/**
+ * Räknaren är kosmetisk och får aldrig stoppa ett anrop, så allt skrivs här.
+ * mutate returnerar false när inget ändrats.
+ */
+async function updateUsage(mutate) {
   try {
-    const usage = await readUsageState();
-    usage.counts[modelId] = (usage.counts[modelId] || 0) + 1;
+    const usage = await readGeminiUsage();
+    if (mutate(usage) === false) return;
     await chrome.storage.local.set({ geminiUsage: usage });
   } catch {
-    // Räknaren är kosmetisk och får aldrig stoppa ett anrop.
+    // Okänt läge är bättre än att krascha; nästa anrop försöker igen.
   }
 }
 
-async function learnDailyLimit(modelId, limit) {
-  try {
-    const usage = await readUsageState();
-    if (usage.limits[modelId] === limit) return;
-    usage.limits[modelId] = limit;
-    await chrome.storage.local.set({ geminiUsage: usage });
-  } catch {
-    // Okänt läge är bättre än att krascha; gränsen lärs in nästa gång.
-  }
-}
+const recordUsage = modelId => updateUsage(usage => {
+  usage.counts[modelId] = (usage.counts[modelId] || 0) + 1;
+});
 
-const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const learnDailyLimit = (modelId, limit) => updateUsage(usage => {
+  if (usage.limits[modelId] === limit) return false;
+  usage.limits[modelId] = limit;
+});
+
+const RETRYABLE_STATUSES = new Set([408, 500, 502, 503, 504]);
 const GEMINI_MAX_ATTEMPTS = 4;
 const GEMINI_BASE_DELAY_MS = 1000;
 const GEMINI_MAX_DELAY_MS = 30000;
@@ -198,7 +197,7 @@ async function callGeminiJson({ apiKey, modelOrder, systemInstruction, userPaylo
     generationConfig: { temperature, responseMimeType: "application/json" }
   });
   const failures = [];
-  let sawPermanentFailure = false;
+  let transient = true;
   for (const candidateModel of ordered) {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(candidateModel)}:generateContent`;
     for (let attempt = 0; attempt < GEMINI_MAX_ATTEMPTS; attempt++) {
@@ -219,11 +218,11 @@ async function callGeminiJson({ apiKey, modelOrder, systemInstruction, userPaylo
         }
       } catch (error) {
         const reason = error?.name === "AbortError" ? "timeout" : (error?.message || "nätverksfel");
-        failures.push(`${candidateModel}: ${reason}`);
         if (attempt < GEMINI_MAX_ATTEMPTS - 1) {
           await sleep(retryDelayMs(attempt));
           continue;
         }
+        failures.push(`${candidateModel}: ${reason}`);
         break;
       }
       const attemptData = await response.json().catch(() => ({}));
@@ -243,17 +242,17 @@ async function callGeminiJson({ apiKey, modelOrder, systemInstruction, userPaylo
         const dailyLimit = parseDailyQuotaLimit(attemptData);
         if (dailyLimit) await learnDailyLimit(candidateModel, dailyLimit);
       }
-      if (!RETRYABLE_STATUSES.has(response.status)) {
-        // 404 = modellen finns inte längre: nästa kostnadsfria modell provas.
-        // Övriga 4xx (nyckel, behörighet, felaktigt anrop) kan inte lyckas genom att försöka igen.
-        if (response.status !== 404) {
-          throw new Error(`Gemini (${candidateModel}) avvisade anropet (HTTP ${response.status}): ${detail}`);
-        }
-        sawPermanentFailure = true;
-        failures.push(`${candidateModel}: HTTP 404 – ${detail}`);
+      failures.push(`${candidateModel}: HTTP ${response.status} – ${detail}`);
+      // 429 betyder att kvoten är slut och 404 att modellen är borta. Ingen av dem blir
+      // bättre av ett nytt försök inom några sekunder, så nästa modell provas direkt.
+      if (response.status === 429 || response.status === 404) {
+        if (response.status === 404) transient = false;
         break;
       }
-      failures.push(`${candidateModel}: HTTP ${response.status} – ${detail}`);
+      if (!RETRYABLE_STATUSES.has(response.status)) {
+        // Övriga 4xx (nyckel, behörighet, felaktigt anrop) kan inte lyckas genom att försöka igen.
+        throw new Error(`Gemini (${candidateModel}) avvisade anropet (HTTP ${response.status}): ${detail}`);
+      }
       if (attempt < GEMINI_MAX_ATTEMPTS - 1) await sleep(retryDelayMs(attempt, response));
     }
   }
@@ -261,9 +260,7 @@ async function callGeminiJson({ apiKey, modelOrder, systemInstruction, userPaylo
     ...failures,
     "503 betyder tillfällig överbelastning hos Google, inte att din kvot nödvändigtvis är slut. 429 betyder hastighets- eller kvotbegränsning. Inga betalda modeller har anropats."
   ];
-  const onlyTransient = !sawPermanentFailure
-    && failures.every(line => !/HTTP \d{3}/.test(line) || /HTTP (408|429|5\d\d)/.test(line));
-  if (onlyTransient) {
+  if (transient) {
     throw modelFailureError("Googles Gemini-tjänst är tillfälligt överbelastad. Försök igen om en stund.", details, { retryable: true });
   }
   throw modelFailureError("Ingen av de kostnadsfria Gemini-modellerna kunde svara.", details);

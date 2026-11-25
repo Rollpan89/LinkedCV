@@ -127,7 +127,7 @@ async function refreshUsageCounter() {
   const strong = document.createElement("strong");
   strong.textContent = String(total);
   const label = document.createElement("span");
-  label.textContent = " anrop idag";
+  label.textContent = "anrop idag";
   element.append(strong, label);
   if (limit) {
     const line = document.createElement("p");
@@ -283,6 +283,8 @@ function refreshProposalSummary() {
 
 const ANALYSIS_CACHE_LIMIT = 10;
 
+const analysisKey = () => analysisFingerprint({ job: state.job, cvText: state.fullCvText, model: state.settings.model });
+
 async function readCachedAnalysis(fingerprint) {
   const { jobAnalyses = [] } = await chrome.storage.local.get("jobAnalyses");
   return jobAnalyses.find(entry => entry.fingerprint === fingerprint) || null;
@@ -346,7 +348,7 @@ async function init() {
     state.fullCvText = stripTags(parsed.containers.map(container => container.paragraphs.map(paragraph => paragraph.text).join("")).join("\n"));
     setProgress(40, "CV-mallen analyserad", `${state.sections.length} redigerbara sektioner hittades.`);
 
-    const fingerprint = analysisFingerprint({ job: pendingJob, cvText: state.fullCvText, model: settings.model });
+    const fingerprint = analysisKey();
     let analysis = await readCachedAnalysis(fingerprint);
     if (analysis) {
       state.statusMessage = `Kravprofilen återanvänds från en tidigare analys med ${analysis.modelUsed}.`;
@@ -361,7 +363,7 @@ async function init() {
       });
       analysis = { items: fresh.jobAnalysis, modelUsed: fresh.modelUsed };
       state.statusMessage = `Kravprofilen är analyserad med ${analysis.modelUsed}.`;
-      await saveCachedAnalysis({ fingerprint, at: new Date().toISOString(), url: pendingJob.url || "", title: pendingJob.title || "", items: analysis.items, modelUsed: analysis.modelUsed });
+      await saveCachedAnalysis({ fingerprint, at: new Date().toISOString(), modelUsed: analysis.modelUsed, items: analysis.items });
     }
     state.jobAnalysis = analysis.items;
     state.modelUsed = analysis.modelUsed;
@@ -444,7 +446,7 @@ async function reanalyze() {
     state.statusMessage = `Kravprofilen är analyserad med ${fresh.modelUsed}.`;
     selectSupportedOnly();
     await saveCachedAnalysis({
-      fingerprint: analysisFingerprint({ job: state.job, cvText: state.fullCvText, model: state.settings.model }),
+      fingerprint: analysisKey(),
       at: new Date().toISOString(),
       url: state.job.url || "",
       title: state.job.title || "",
