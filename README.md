@@ -1,6 +1,43 @@
-# CV Anpassaren – Chrome Extension (v0.2.2)
+# CV Anpassaren – Chrome Extension (v0.3.0)
 
 En Manifest V3-extension som läser en LinkedIn-jobbannons, analyserar en Google Docs-CV-mall med Gemini, visar ändringsförslag och skapar en kopia av mallen i Google Drive.
+
+## v0.3.0 – strukturell Google Docs-redigering och kompetensval
+
+Den här versionen ersätter prototypens tillplattade textpositioner med dokumentets egna strukturella index och inför det kompetensval som kravbilden förutsätter.
+
+**Google Docs-redigering**
+
+- Sektioner hittas och redigeras med absoluta `startIndex`/`endIndex` från Google Docs API i stället för teckenpositioner i en hopslagen textsträng. Taggar som Docs har delat upp i flera `textRun` hanteras, liksom hopp mellan stycken och tabellceller.
+- Kopian läses om från Google Docs direkt före redigeringen, så indexen kommer alltid från det dokument som faktiskt ändras. Ändras mallen mellan granskning och kopiering avbryts flödet.
+- Alla taggar valideras innan något skrivs: saknad, tom, dubblerad, nästlad eller avvikande tagg stoppar processen. Taggar som delats över ett styckebrott stoppar också.
+- En tagg som står ensam på sin rad tas bort tillsammans med radbrytningen, så inga tomma stycken lämnas kvar. Sista stycket i dokumentet och enkelstyckes tabellceller behåller alltid sin radbrytning.
+- Oförändrade sektioner rörs inte alls: bara taggarna tas bort, vilket bevarar text och formatering exakt.
+- Ersatt text får sektionens första textstil via en explicit `updateTextStyle` i samma batch, i stället för att förlita sig på att Docs ärver stilen vid infogningspunkten.
+- Efter `batchUpdate` läses kopian tillbaka och jämförs tecken för tecken med den godkända texten. Stämmer den inte, eller finns taggar kvar, avbryts flödet med en felbeskrivning i stället för att dokumentet "repareras".
+- Requesten skickas bakifrån och fram, så index för sektioner som ännu inte redigerats påverkas aldrig.
+
+**Arbetsflöde**
+
+- Två steg hos Gemini: först en kravprofil för hela annonsen, sedan textförslag utifrån de krav användaren har valt.
+- Kravanalysen cachas per annons i `chrome.storage.local`, med annonsens text, CV-texten och vald modell i nyckeln. Öppnar du samma annons igen eller laddar om förhandsgranskningen återanvänds analysen, så "Generera om förslagen" bara gör sektionsanropet och en 503 aldrig tvingar fram en ny full analys.
+- Länken **Analysera om** i kompetensväljaren tvingar en ny kravanalys utan att läsa cachen. Valen återställs till de kompetenser som CV:t styrker, och den nya analysen sparas så nästa inläsning återanvänder den.
+- Vid 503/429/timeout försöker anropet igen med exponentiell backoff och jitter (1, 2, 4 sekunder, högst fyra försök per modell, `Retry-After` respekteras) innan nästa kostnadsfria modell provas. Är alla försök tillfälliga fel visas en förklaring och knappen **Försök igen** i stället för ett rått felmeddelande; permanenta fel som ogiltig nyckel visar fortfarande felet direkt.
+- Statusraden i förhandsgranskningen visar vilken modell som utförde anropet och behåller den informationen även efter att förslagen ritats upp. Den ersätts bara av en ny status, till exempel vid en ny generering.
+- Kompetensväljaren visar kategori, prioritet, stödstatus, annonsbelägg, CV-belägg och rekommendation. Användaren väljer själv vad som får påverka texten; inget läggs till automatiskt.
+- Inställningen **Tillåt ej styrkta kompetenser** styr om krav som saknar belägg i CV:t får väljas. Är den av kan de inte väljas alls; är den på markeras de tydligt och användaren ansvarar för granskningen.
+- Förslagen är redigerbara textfält i förhandsgranskningen. Det som står i fälten är exakt det som skrivs till kopian.
+- Ett skyddsnät kontrollerar den godkända texten innan kopian skapas: en kompetens som saknar belägg och inte uttryckligen har godkänts får inte förekomma i förslaget. Skyddsnätet är lexikalt och jämför kravens namn med texten.
+- Förslag som innehåller taggliknande text avvisas innan någon kopia skapas, så att inget halvfärdigt dokument lämnas i Google Drive.
+- Efter redigeringen jämförs även dokumentets struktur (antal textbehållare och tabellernas form) med mallen, utöver textjämförelsen och taggkontrollen.
+- Kompetenser som saknar belägg markeras särskilt i väljaren när inställningen tillåter dem: egen ram, egen färg och texten ”Ej styrkt av CV:t – du ansvarar själv för granskningen”.
+- Sektioner med blandad formatering eller flera stycken varnas om i förhandsgranskningen, eftersom en omskrivning då får enhetlig stil respektive slår ihop stycken.
+
+**Tester**
+
+`npm test` kör `node --test tests/*.test.mjs`. Testerna simulerar Google Docs API: `deleteContentRange`, `insertText` och `updateTextStyle` tillämpas i samma ordning som API:et, med index som förskjuts på samma sätt. De verifierar taggar delade över flera `textRun`, taggrader, flera sektioner i samma stycke, tabellceller, oförändrade sektioner, samtliga valideringsfel och skyddsnätet för ej styrkta kompetenser. Testerna kräver ingen extern testdependency och inget Google-konto.
+
+**Inte verifierat i den här miljön:** redigering mot ett skarpt Google Docs-dokument, LinkedIn-extraktion i en inloggad webbläsarsession och OAuth med ett riktigt tilläggs-ID. Se avsnitten nedan.
 
 ## v0.1.9 – titelidentifiering i LinkedIns jobbhuvud
 
@@ -17,6 +54,7 @@ En Manifest V3-extension som läser en LinkedIn-jobbannons, analyserar en Google
 - Text utanför taggarna används endast som faktaunderlag och skrivs inte om.
 - Gemini instrueras att behandla jobbannonsen som opålitlig data, att inte följa instruktioner i annonsen och att inte hitta på erfarenheter eller kompetenser.
 - Användaren granskar ändringar innan en Google Docs-kopia skapas.
+- Räknaren i övre högra hörnet visar hur många Gemini-anrop tillägget har gjort under det aktuella Pacific-dygnet. Gemini API saknar endpoint för förbrukad kvot, så räkningen görs lokalt per modell; dygnsgränsen läses från ett 429-svar (som namnger `GenerateRequestsPerDayPerProjectPerModel-FreeTier`) eller från fältet i Inställningar, och först då visas hur många anrop som är kvar.
 - Alla taggar i formatet `[TAG]` och `[/TAG]` tas bort i den skapade kopian.
 - Historiken sparas lokalt i Chrome. Själva dokumenten ligger i Google Drive.
 
@@ -60,7 +98,11 @@ Gemini-nyckeln lagras i `chrome.storage.local` i den aktuella Chrome-profilen. D
 
 ## Formatering – teknisk avgränsning
 
-Google Docs API behåller all dokumentstruktur och formattering utanför de redigerade intervallen. När innehåll inne i en taggad sektion ersätts infogas den nya texten vid sektionens första textposition och ärver i normalfallet formatteringen därifrån. Om en redigeringssektion innehåller flera olika teckenformat kan en ersättning därför inte garantera att varje ny teckendel får samma blandade formatering. För bästa resultat: håll varje redigeringssektion i ett konsekvent textformat.
+Google Docs API behåller all dokumentstruktur och formattering utanför de redigerade intervallen, och redigeringen rör aldrig något index utanför en taggad sektion. En oförändrad sektion behåller sin text och formatering exakt eftersom bara taggarna tas bort.
+
+När innehållet i en sektion byts ut får den nya texten sektionens första textstil, som appliceras explicit med `updateTextStyle` i samma batch. En sektion med blandad formatering (t.ex. fetstil mitt i texten) kan därför inte behålla varje teckendel separat: ersättningstexten blir enhetlig. Förhandsgranskningen varnar när en sektion har blandad formatering eller sträcker sig över flera stycken, så att du kan kontrollera sektionen i den skapade kopian. För bästa resultat: håll varje redigeringssektion i ett konsekvent textformat.
+
+Stycken inom sektionen behåller sin styckestil. Om förslaget är en enda rad slås en flerradig sektion ihop, vilket förhandsgranskningen också varnar om.
 
 Taggar som används för redigeringssektioner ska vara vanlig dokumenttext, inte text inuti bilder eller teckningar. Undvik nästlade taggar och använd unika taggnamn per sektion.
 
@@ -103,10 +145,12 @@ Taggar som används för redigeringssektioner ska vara vanlig dokumenttext, inte
 - `manifest.json` – Manifest V3, behörigheter och OAuth-konfiguration.
 - `background.js` – högerklicksmeny och arbetsflödesstart.
 - `content.js` – extraherar jobbannonsen från LinkedIn.
-- `shared.js` – Gemini, Google API, dokumenttolkning och tagghantering.
-- `preview.html/js` – ändringsgranskning och skapande av dokumentkopia.
-- `options.html/js` – mall, API-nyckel och Google-inloggning.
+- `shared.js` – Gemini, Google API, strukturell dokumenttolkning, taggvalidering, redigeringsrequest och verifiering.
+- `preview.html/js` – kravprofil, kompetensval, redigerbara förslag och skapande av dokumentkopia.
+- `options.html/js` – mall, API-nyckel, modellval, kompetensinställning och Google-inloggning.
 - `popup.html/js` – senaste dokumentet och historik.
+- `tests/google-docs.test.mjs` – offline-tester för Google Docs-redigeringen (Docs-simulator).
+- `package.json` – endast för testkörning (`npm test`); påverkar inte tillägget i Chrome.
 
 
 ### v0.1.1

@@ -26,6 +26,9 @@
         <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option>
       </select>
       <p class="hint">Om den primära modellen är överbelastad eller når sin gratiskvot provas reservmodellerna automatiskt.</p>
+      <label for="dailyLimit">Daglig gräns för primär modell (valfritt)</label>
+      <input id="dailyLimit" type="number" min="0" step="1" placeholder="0 = okänd">
+      <p class="hint">Google publicerar inte gratisnivåns dygnsgräns i API:et; den visas i AI Studio → Rate limits. Ange samma siffra här så visar räknaren i förhandsgranskningen hur många anrop du har kvar. Tillägget lär sig också gränsen automatiskt när ett 429-svar namnger den.</p>
       <label for="fallbackModel1">Reservmodell 1</label>
       <select id="fallbackModel1">
         <option value="">Ingen</option>
@@ -41,6 +44,11 @@
         <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option>
       </select>
       <p class="hint">Endast modeller med kostnadsfri standardnivå kan väljas. Tillägget avvisar andra modell-ID:n och växlar aldrig till en betald modell. Google kan ändra sina priser och kvoter över tid.</p>
+    </section>
+    <section class="panel">
+      <h2>Kompetenser</h2>
+      <label class="checkbox-row" for="allowUnsupportedSkills"><input id="allowUnsupportedSkills" type="checkbox"><span>Tillåt ej styrkta kompetenser</span></label>
+      <p class="hint"><strong>Av:</strong> Endast kompetenser med stöd i CV:t (belagda eller delvis belagda) kan väljas. Kompetenser som saknar belägg kan inte föras in.<br><strong>På:</strong> Även kompetenser utan belägg i CV:t kan väljas. De markeras tydligt i kompetensväljaren och du ansvarar själv för att granska och godkänna dem. Inget läggs till automatiskt.</p>
     </section>
     <section class="panel">
       <h2>Regler för CV-anpassning</h2>
