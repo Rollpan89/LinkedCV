@@ -27,7 +27,7 @@
 .pill.partial{background:#eef2ff;color:#334ea8}
 .pill.warn{background:#fff4e0;color:#8a5a00}
 .pill.changed{background:#eef4ff;color:var(--blue)}
-.proposal-input{width:100%;min-height:96px;border:1px solid #ccd4df;border-radius:9px;padding:10px 12px;font:13px/1.55 inherit;color:var(--ink);background:#fff;resize:vertical}
+.proposal-input{width:100%;min-height:96px;border:1px solid #ccd4df;border-radius:9px;padding:10px 12px;font:13px/1.55 inherit;color:var(--ink);background:#fff;resize:vertical;font-family: sans-serif;}
 .proposal-input:focus{outline:2px solid #b9ccff;border-color:var(--blue)}
 .section-warning{margin:10px 0 0;padding-left:18px;font-size:12px;color:#7a5a12;line-height:1.5}
 .diff-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
@@ -84,6 +84,7 @@
 .data-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
 
 /* Utskriftsvy för PDF-export: bara den godkända CV-texten skrivs ut. */
+#exportPdf { display: none;}
 .print-view{display:none}
 @media print{
   body.page{background:#fff;padding:0}
@@ -94,4 +95,9 @@
   .print-view h2{font-size:13pt;margin:16pt 0 6pt}
   .print-view p{margin:0 0 4pt;white-space:pre-wrap}
   .print-view section{break-inside:avoid}
+}
+
+
+select#templateSelect {
+    width: 50%;
 }
