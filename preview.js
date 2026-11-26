@@ -7,6 +7,7 @@ import {
   readSettings,
   wordDiff,
   generateSections,
+  discardCopiedDoc,
   extractDocId,
   getDoc,
   parseTemplate,
@@ -14,6 +15,8 @@ import {
   updateCopiedDoc,
   normalizeForCompare,
   findUnapprovedIntroductions,
+  locateEvidence,
+  checkProposalConsistency,
   assertSafeProposalText,
   stripTags
 } from "./shared.js";
@@ -166,13 +169,23 @@ function renderRequirements() {
         ${entries.map(({ item, index }) => {
           const blocked = isBlocked(item);
           const unverified = item.status === "not_found" && !blocked;
+          const evidence = locateEvidence({ cvEvidence: item.cvEvidence, sections: state.sections, cvText: state.fullCvText });
+          const cvLine = evidence.status === "section"
+            ? `CV: ${esc(item.cvEvidence)} · belägg i [${esc(evidence.sectionTag)}]`
+            : evidence.status === "cv"
+              ? `CV: ${esc(item.cvEvidence)} · belägget finns utanför de redigerbara sektionerna`
+              : `CV: ${esc(item.cvEvidence || "inget tydligt belägg")}`;
+          const evidenceWarning = evidence.status === "missing"
+            ? `<span class="requirement-unverified">Belägget finns inte ordagrant i CV:t – kontrollera kravet själv innan du väljer det.</span>`
+            : "";
           return `<label class="requirement-item${blocked ? " blocked" : ""}${unverified ? " unverified" : ""}">
             <input type="checkbox" data-index="${index}" ${state.selected.has(index) ? "checked" : ""} ${blocked ? "disabled" : ""}>
             <span class="requirement-main">
               <span class="job-analysis-head"><strong>${esc(item.name)}</strong>
                 <span class="pill ${STATUS_CLASS[item.status] || ""}">${esc(IMPORTANCE_LABELS[item.importance] || "Övrigt")} · ${esc(STATUS_LABELS[item.status] || item.status)}</span></span>
               <span class="requirement-evidence">Annons: ${esc(item.evidence || "inget belägg")}</span>
-              <span class="requirement-evidence">CV: ${esc(item.cvEvidence || "inget tydligt belägg")}</span>
+              <span class="requirement-evidence">${cvLine}</span>
+              ${evidenceWarning}
               ${item.recommendation ? `<span class="requirement-evidence">Rekommendation: ${esc(item.recommendation)}</span>` : ""}
               ${blocked ? `<span class="requirement-blocked">Kan inte väljas: kompetensen saknar belägg i CV:t och inställningen ”Tillåt ej styrkta kompetenser” är av.</span>` : ""}
               ${unverified ? `<span class="requirement-unverified">Ej styrkt av CV:t – inkluderas bara om du väljer den, och du ansvarar själv för granskningen.</span>` : ""}
@@ -249,7 +262,10 @@ function renderProposals() {
     const proposal = state.proposals?.find(item => item.tag === section.tag);
     const warnings = [];
     if (section.mixedFormatting) warnings.push("Sektionen har flera olika teckenformat. Ersättningstexten får formatet från sektionens första tecken.");
-    if (section.multiParagraph) warnings.push("Sektionen sträcker sig över flera stycken. Om förslaget är en rad slås styckena ihop.");
+    const proposedLines = String(approvedText(section.tag) ?? "").split("\n").length;
+    if (section.paragraphCount > 1 && proposedLines !== section.paragraphCount) {
+      warnings.push(`Sektionen har ${section.paragraphCount} stycken men förslaget har ${proposedLines} rader. Styckebrotten kan då inte bevaras — gör om förslaget med en rad per stycke om du vill behålla punktlistan.`);
+    }
     return `<article class="diff-card" data-tag="${esc(section.tag)}">
       <div class="diff-title"><strong>${esc(section.tag)}</strong><span class="pill" data-change-pill>—</span></div>
       <div class="diff-grid">
@@ -285,6 +301,7 @@ function refreshProposalSummary() {
   $("create").disabled = !state.proposals || state.creating;
   for (const section of state.sections) updateWordDiff(section.tag);
   renderAdditionWarnings();
+  renderConsistencyWarnings();
 }
 
 function updateWordDiff(tag) {
@@ -325,6 +342,20 @@ function renderAdditionWarnings() {
   element.hidden = terms.length === 0;
   element.textContent = terms.length
     ? `Kontrollera innan du godkänner: ${terms.join(", ")} nämns i förslaget men finns inte i CV:t eller annonsen.`
+    : "";
+}
+
+/**
+ * Konsekvenskontrollen räknas om vid varje redigering, så att en ändrad period syns
+ * direkt i stället för först när kopian skapas.
+ */
+function renderConsistencyWarnings() {
+  const element = $("consistencyWarnings");
+  if (!element) return;
+  const findings = checkProposalConsistency({ proposals: finalProposals(), cvText: state.fullCvText });
+  element.hidden = findings.length === 0;
+  element.textContent = findings.length
+    ? `Konsekvenskontroll: ${findings.map(item => (item.tag ? `${item.message} [${item.tag}]` : item.message)).join(" ")}`
     : "";
 }
 
@@ -392,7 +423,9 @@ async function init() {
       tag: section.tag,
       original: section.original,
       mixedFormatting: section.mixedFormatting,
-      multiParagraph: section.multiParagraph
+      multiParagraph: section.multiParagraph,
+      paragraphCount: section.paragraphCount,
+      listParagraphs: section.listParagraphs
     }));
     state.fullCvText = stripTags(parsed.containers.map(container => container.paragraphs.map(paragraph => paragraph.text).join("")).join("\n"));
     setProgress(66, "CV-mallen analyserad", `${state.sections.length} redigerbara sektioner hittades. Nästa steg är kravanalysen.`);
@@ -602,6 +635,11 @@ async function create() {
     showCreateError(`Texten innehåller kompetenser som saknar belägg i CV:t och som du inte har godkänt: ${violations.map(item => `${item.name} (${item.tag})`).join(", ")}. Ta bort dem ur förslaget, eller tillåt ej styrkta kompetenser i inställningarna och välj dem medvetet.`);
     return;
   }
+  const conflicts = checkProposalConsistency({ proposals, cvText: state.fullCvText }).filter(item => item.level === "block");
+  if (conflicts.length) {
+    showCreateError(`Konsekvenskontrollen stoppar kopian: ${conflicts.map(item => `${item.message} [${item.tag}]`).join(" ")} Rätta perioderna i förslagen först — CV:t är källan till årtalen.`);
+    return;
+  }
   // Kontrollera förslagen innan en kopia skapas, så att inget halvfärdigt
   // dokument lämnas kvar i Google Drive.
   try {
@@ -618,7 +656,16 @@ async function create() {
     const company = state.job.company || "Företag";
     const title = `CV – ${role} – ${company}`.replace(/[\\/:*?"<>|]/g, "-").slice(0, 120);
     const copy = await copyTemplate(state.templateId, title);
-    await updateCopiedDoc(copy.id, proposals);
+    try {
+      await updateCopiedDoc(copy.id, proposals);
+    } catch (error) {
+      // En kopia som inte blev godkänd ska inte ligga kvar i Drive som ett halvfärdigt CV.
+      const removed = await discardCopiedDoc(copy.id);
+      const cleanup = removed
+        ? "Den ofullständiga kopian har tagits bort från Google Drive."
+        : "Kopian kunde inte tas bort automatiskt — radera den i Google Drive.";
+      throw new Error(`${error.message}\n${cleanup}`);
+    }
     const url = copy.webViewLink || `https://docs.google.com/document/d/${copy.id}/edit`;
     const entry = { id: copy.id, url, role, company, createdAt: new Date().toISOString(), jobUrl: state.job.url };
     const { history = [] } = await chrome.storage.local.get("history");

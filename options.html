@@ -11,11 +11,21 @@
       <h2>Google Docs-mall</h2>
       <label for="templateUrl">Länk till CV-mallen</label>
       <input id="templateUrl" type="url" placeholder="https://docs.google.com/document/d/.../edit">
+      <p id="statusTemplateUrl" class="field-status" hidden></p>
       <p class="hint">Originalmallen ändras aldrig. Varje CV skapas som en separat kopia i Google Drive.</p>
       <div class="row"><button id="connectGoogle" class="secondary">Anslut Google-konto</button><span id="googleStatus" class="status">Inte kontrollerad</span></div>
     </section>
     <section class="panel" id="onboarding">
-      <h2>Kom igång: hämta en Gemini API-nyckel</h2>
+      <h2>Kom igång</h2>
+      <p id="onboardingProgress" class="status" aria-live="polite">0 av 4 steg klara</p>
+      <ol class="onboarding-list">
+        <li id="onboardingApiKey" class="onboarding-step">Lägg in din Gemini API-nyckel</li>
+        <li id="onboardingTemplate" class="onboarding-step">Klistra in länken till din Google Docs-mall</li>
+        <li id="onboardingTemplateChecked" class="onboarding-step">Kontrollera att mallen har taggar</li>
+        <li id="onboardingGoogle" class="onboarding-step">Anslut ditt Google-konto</li>
+      </ol>
+      <p id="onboardingDone" class="notice" hidden>Alla steg är klara. Öppna en LinkedIn-annons och välj Anpassa till CV i högerklicksmenyn.</p>
+      <h3>Så hämtar du en Gemini API-nyckel</h3>
       <p class="hint">CV Anpassaren använder din egen nyckel till Google Gemini. Att skapa den kostar inget, och gratisnivån räcker för normal användning.</p>
       <ol class="rules">
         <li>Öppna <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Google AI Studio → API keys</a> och logga in med ditt Google-konto.</li>
@@ -29,6 +39,7 @@
       <h2>Gemini</h2>
       <label for="apiKey">Gemini API-nyckel</label>
       <input id="apiKey" type="password" autocomplete="off" placeholder="Klistra in din API-nyckel">
+      <p id="statusApiKey" class="field-status" hidden></p>
       <p class="hint">Nyckeln lagras lokalt i Chrome. Använd en personlig nyckel och dela inte tilläggsmappen med andra.</p>
       <label for="model">Primär modell</label>
       <select id="model">
@@ -39,6 +50,7 @@
       <p class="hint">Om den primära modellen är överbelastad eller når sin gratiskvot provas reservmodellerna automatiskt.</p>
       <label for="dailyLimit">Daglig gräns för primär modell (valfritt)</label>
       <input id="dailyLimit" type="number" min="0" step="1" placeholder="0 = okänd">
+      <p id="statusDailyLimit" class="field-status" hidden></p>
       <p class="hint">Google publicerar inte gratisnivåns dygnsgräns i API:et; den visas i AI Studio → Rate limits. Ange samma siffra här så visar räknaren i förhandsgranskningen hur många anrop du har kvar. Tillägget lär sig också gränsen automatiskt när ett 429-svar namnger den.</p>
       <label for="fallbackModel1">Reservmodell 1</label>
       <select id="fallbackModel1">
@@ -54,6 +66,7 @@
         <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option>
         <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option>
       </select>
+      <p id="statusFallbackModels" class="field-status" hidden></p>
       <p class="hint">Endast modeller med kostnadsfri standardnivå kan väljas. Tillägget avvisar andra modell-ID:n och växlar aldrig till en betald modell. Google kan ändra sina priser och kvoter över tid.</p>
     </section>
     <section class="panel">
