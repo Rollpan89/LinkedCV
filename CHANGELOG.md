@@ -25,7 +25,6 @@
 - Inställningar synkas via `chrome.storage.sync`; API-nycklarna stannar alltid lokalt.
 - Historiken gallras automatiskt: högst 100 poster och inget äldre än 180 dagar. Gallringen sker både när ett CV sparas och när Inställningar öppnas.
 - Extraktionen mäter sina egna tider (totalt, väntan på stabilt DOM och expansion) och visar dem i diagnostiken.
-- **Exportera som PDF** skriver ut exakt den godkända texten i en ren utskriftsvy. Samma blockerande kontroller som vid skapandet gäller.
 
 **Modeller**
 

@@ -9,7 +9,6 @@ En Manifest V3-extension som läser en LinkedIn-jobbannons, analyserar en Google
 - **Generera om den här sektionen** gör ett anrop för en sektion i stället för alla, och ett anrop avbryts med förklaring om räknaren visar att dagens kvot är slut.
 - **Skärpt fabriceringsskydd**: årtal och siffror som saknas i CV:t, originalet och annonsen blockerar skapandet; nya egennamn visas som varning.
 - **Kopiera diagnostik** samlar annons, extraktionsstatus, modellval, kvotläge och extraktionens tider (totalt, DOM-väntan och expansion) till urklipp.
-- **Exportera som PDF** skriver ut exakt den godkända CV-texten i en ren utskriftsvy (välj Spara som PDF i webbläsaren). Samma hårda kontroller som vid skapandet gäller, så en bakvänd period eller en påhittad uppgift stoppar även utskriften.
 - **Integritet och data**: beskriver vad som lämnar datorn och låter dig rensa kravanalyser, anropsräknare och historik. Historiken gallras automatiskt: högst 100 poster, och inget äldre än 180 dagar.
 - Inställningar synkas mellan Chrome-profiler via `chrome.storage.sync`; API-nyckeln lämnar aldrig datorn.
 - Reservmodellerna ordnas automatiskt efter vilka som faktiskt svarat, med din ordning som utgångspunkt vid lika resultat.

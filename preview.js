@@ -23,7 +23,6 @@ import {
   assertSafeProposalText,
   stripTags,
   pruneHistory,
-  printableSectionsHtml,
   resolveBackupProvider
 } from "./shared.js";
 
@@ -267,7 +266,6 @@ function refreshSelectionSummary() {
   $("selectionCount").textContent = `${count} valda`;
   $("generate").disabled = state.busy || state.reanalyzing || !count;
   $("reanalyze").disabled = state.busy || state.reanalyzing;
-  $("exportPdf").disabled = !state.proposals || state.creating;
   $("generate").textContent = state.proposals ? "Generera om förslagen" : "Generera textförslag";
   $("staleNotice").hidden = !(state.proposals && state.stale);
   // Bevarar modellinformationen från senaste anropet i stället för att nolla den.
@@ -334,7 +332,6 @@ function refreshProposalSummary() {
   $("changeCount").textContent = `${changed} ändringar`;
   $("noChanges").hidden = changed > 0;
   $("create").disabled = !state.proposals || state.creating;
-  $("exportPdf").disabled = !state.proposals || state.creating;
   for (const section of state.sections) updateWordDiff(section.tag);
   renderAdditionWarnings();
   renderConsistencyWarnings();
@@ -673,7 +670,7 @@ async function regenerateSection(tag) {
 }
 
 /**
- * Hårda hinder som gäller både när Google Docs-kopian skapas och när PDF:en skrivs ut:
+ * Hårda hinder som gäller när Google Docs-kopian skapas:
  * påhittade uppgifter, ej godkända kompetenser, bakvända perioder och taggliknande text.
  * Returnerar felet som ska visas, eller null när förslagen får användas.
  */
@@ -699,23 +696,6 @@ function blockingProblem(proposals) {
   return null;
 }
 
-/**
- * PDF-export. Webbläsarens utskrift är den enda PDF-vägen som inte kräver en extern
- * tjänst; utskriftsvyn innehåller exakt den text som godkänts i granskningen.
- */
-function exportPdf() {
-  if (!state.proposals) return;
-  const proposals = finalProposals();
-  const problem = blockingProblem(proposals);
-  if (problem) {
-    showCreateError(problem);
-    return;
-  }
-  const title = [state.job?.title, state.job?.company].filter(Boolean).join(" – ") || "Anpassat CV";
-  $("printView").innerHTML = `<h1>${escapeHtml(title)}</h1>${printableSectionsHtml(proposals)}`;
-  window.print();
-}
-
 function unapprovedViolations(proposals) {
   const approvedNames = state.allowUnsupported
     ? selectedItems().filter(item => item.status === "not_found").map(item => item.name)
@@ -727,7 +707,7 @@ async function create() {
   const button = $("create");
   $("createError").hidden = true;
   const proposals = finalProposals();
-  // Samma kontroller som PDF-exporten: inget halvfärdigt dokument lämnas i Drive.
+  // Inget halvfärdigt dokument lämnas kvar i Drive.
   const problem = blockingProblem(proposals);
   if (problem) {
     showCreateError(problem);
@@ -886,7 +866,6 @@ $("copyDiagnostics").addEventListener("click", async () => {
     console.log(JSON.stringify(payload, null, 2));
   }
 });
-$("exportPdf").addEventListener("click", exportPdf);
 $("create").addEventListener("click", create);
 $("cancel").addEventListener("click", () => window.close());
 

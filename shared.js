@@ -958,18 +958,6 @@ export function summarizeTemplate(doc) {
  * Google OAuth och REST
  * ------------------------------------------------------------------ */
 
-/**
- * Utskriftsvyn för PDF-export: en rubrik per sektion och ett stycke per rad, så att
- * styckebrotten i det godkända förslaget syns i filen. Allt escapas — utskriften
- * visar exakt den text användaren godkände, utan taggar.
- */
-export function printableSectionsHtml(sections = []) {
-  return (Array.isArray(sections) ? sections : []).map(section => {
-    const lines = String(section?.text ?? "").split("\n");
-    return `<section><h2>${escapeHtml(section?.tag || "")}</h2>${lines.map(line => `<p>${escapeHtml(line) || "&nbsp;"}</p>`).join("")}</section>`;
-  }).join("");
-}
-
 /** Escapar text som ska in i HTML; sidorna bygger listrader som strängar. */
 export function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
