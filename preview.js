@@ -1,10 +1,13 @@
 import {
   analyzeJob,
+  dailyLimitFor,
+  escapeHtml,
   analysisFingerprint,
   findUnverifiedAdditions,
   FREE_GEMINI_MODELS,
   readGeminiUsage,
   readSettings,
+  resolveTemplates,
   wordDiff,
   generateSections,
   discardCopiedDoc,
@@ -18,7 +21,10 @@ import {
   locateEvidence,
   checkProposalConsistency,
   assertSafeProposalText,
-  stripTags
+  stripTags,
+  pruneHistory,
+  printableSectionsHtml,
+  resolveBackupProvider
 } from "./shared.js";
 
 const $ = id => document.getElementById(id);
@@ -40,6 +46,7 @@ const IMPORTANCE_LABELS = { required: "Krav", preferred: "Meriterande", stack: "
 const state = {
   job: null,
   settings: {},
+  templates: [],
   templateId: null,
   sections: [],
   fullCvText: "",
@@ -107,12 +114,35 @@ function showCreateError(error, retry) {
   renderErrorBox($("createError"), error, retry);
 }
 
-function esc(value) {
-  return String(value ?? "").replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
-}
-
 function modelLabel(modelId) {
   return FREE_GEMINI_MODELS.find(item => item.id === modelId)?.label || modelId;
+}
+
+/** Konfigurerad reservleverantör, eller null när bara Gemini ska användas. */
+const backupProvider = () => resolveBackupProvider(state.settings);
+
+/** Annonsens payload till Gemini — samma form i alla anrop. */
+function jobPayload() {
+  return {
+    title: state.job.title || "",
+    company: state.job.company || "",
+    description: state.job.description || state.job.text,
+    diagnostics: state.job.diagnostics || {}
+  };
+}
+
+/** Bevisraden i kravlistan: var i CV:t citatet finns, eller en varning om det inte finns. */
+function evidenceLines(item) {
+  const evidence = locateEvidence({ cvEvidence: item.cvEvidence, sections: state.sections, cvText: state.fullCvText });
+  const text = evidence.status === "section"
+    ? `CV: ${escapeHtml(item.cvEvidence)} · belägg i [${escapeHtml(evidence.sectionTag)}]`
+    : evidence.status === "cv"
+      ? `CV: ${escapeHtml(item.cvEvidence)} · belägget finns utanför de redigerbara sektionerna`
+      : `CV: ${escapeHtml(item.cvEvidence || "inget tydligt belägg")}`;
+  const warning = evidence.status === "missing"
+    ? `<span class="requirement-unverified">Belägget finns inte ordagrant i CV:t – kontrollera kravet själv innan du väljer det.</span>`
+    : "";
+  return { text, warning };
 }
 
 /**
@@ -126,7 +156,7 @@ async function refreshUsageCounter() {
   if (!element) return;
   const total = Object.values(usage.counts).reduce((sum, value) => sum + value, 0);
   const model = state.settings.model;
-  const limit = usage.limits[model] || Number(state.settings.dailyLimits?.[model]) || 0;
+  const limit = dailyLimitFor(usage, state.settings, model);
   const usedForModel = usage.counts[model] || 0;
   element.replaceChildren();
   const strong = document.createElement("strong");
@@ -147,10 +177,23 @@ async function refreshUsageCounter() {
   ].join("\n");
 }
 
+/** Med flera mallar väljer användaren vilken som kopieras. Originalmallen ändras aldrig. */
+function renderTemplatePicker() {
+  const select = $("templateSelect");
+  select.replaceChildren(...state.templates.map((template, index) => {
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = template.name;
+    return option;
+  }));
+  select.hidden = state.templates.length < 2;
+  select.value = "0";
+}
+
 function renderExtractionWarnings() {
   const warnings = state.job?.diagnostics?.extractionWarnings || [];
   $("extractionPanel").hidden = warnings.length === 0;
-  $("extractionWarnings").innerHTML = warnings.map(item => `<li>${esc(item)}</li>`).join("");
+  $("extractionWarnings").innerHTML = warnings.map(item => `<li>${escapeHtml(item)}</li>`).join("");
 }
 
 /* ---------------- Kompetensväljare ---------------- */
@@ -165,30 +208,23 @@ function renderRequirements() {
   $("requirementsList").innerHTML = items.length
     ? [...groupBy(items, item => item.category)].map(([category, entries]) => `
       <section class="job-analysis-group">
-        <h3>${esc(CATEGORY_LABELS[category] || CATEGORY_LABELS.other)}</h3>
+        <h3>${escapeHtml(CATEGORY_LABELS[category] || CATEGORY_LABELS.other)}</h3>
         ${entries.map(({ item, index }) => {
           const blocked = isBlocked(item);
           const unverified = item.status === "not_found" && !blocked;
-          const evidence = locateEvidence({ cvEvidence: item.cvEvidence, sections: state.sections, cvText: state.fullCvText });
-          const cvLine = evidence.status === "section"
-            ? `CV: ${esc(item.cvEvidence)} · belägg i [${esc(evidence.sectionTag)}]`
-            : evidence.status === "cv"
-              ? `CV: ${esc(item.cvEvidence)} · belägget finns utanför de redigerbara sektionerna`
-              : `CV: ${esc(item.cvEvidence || "inget tydligt belägg")}`;
-          const evidenceWarning = evidence.status === "missing"
-            ? `<span class="requirement-unverified">Belägget finns inte ordagrant i CV:t – kontrollera kravet själv innan du väljer det.</span>`
-            : "";
+          const evidence = evidenceLines(item);
           return `<label class="requirement-item${blocked ? " blocked" : ""}${unverified ? " unverified" : ""}">
-            <input type="checkbox" data-index="${index}" ${state.selected.has(index) ? "checked" : ""} ${blocked ? "disabled" : ""}>
+            <input type="checkbox" data-index="${index}" ${state.selected.has(item) ? "checked" : ""} ${blocked ? "disabled" : ""}>
             <span class="requirement-main">
-              <span class="job-analysis-head"><strong>${esc(item.name)}</strong>
-                <span class="pill ${STATUS_CLASS[item.status] || ""}">${esc(IMPORTANCE_LABELS[item.importance] || "Övrigt")} · ${esc(STATUS_LABELS[item.status] || item.status)}</span></span>
-              <span class="requirement-evidence">Annons: ${esc(item.evidence || "inget belägg")}</span>
-              <span class="requirement-evidence">${cvLine}</span>
-              ${evidenceWarning}
-              ${item.recommendation ? `<span class="requirement-evidence">Rekommendation: ${esc(item.recommendation)}</span>` : ""}
+              <span class="job-analysis-head"><strong>${escapeHtml(item.name)}</strong>
+                <span class="pill ${item.manual ? "partial" : STATUS_CLASS[item.status] || ""}">${escapeHtml(IMPORTANCE_LABELS[item.importance] || "Övrigt")} · ${escapeHtml(item.manual ? "Manuellt tillagt" : STATUS_LABELS[item.status] || item.status)}</span></span>
+              <span class="requirement-evidence">Annons: ${escapeHtml(item.evidence || "inget belägg")}</span>
+              <span class="requirement-evidence">${evidence.text}</span>
+              ${evidence.warning}
+              ${item.recommendation ? `<span class="requirement-evidence">Rekommendation: ${escapeHtml(item.recommendation)}</span>` : ""}
               ${blocked ? `<span class="requirement-blocked">Kan inte väljas: kompetensen saknar belägg i CV:t och inställningen ”Tillåt ej styrkta kompetenser” är av.</span>` : ""}
               ${unverified ? `<span class="requirement-unverified">Ej styrkt av CV:t – inkluderas bara om du väljer den, och du ansvarar själv för granskningen.</span>` : ""}
+              <button type="button" class="link-button requirement-remove" data-remove="${index}">Ta bort</button>
             </span>
           </label>`;
         }).join("")}
@@ -213,8 +249,9 @@ function groupBy(items, keyFn) {
   return groups;
 }
 
+/** Valen håller item-objekten, inte index: då överlever de att krav läggs till eller tas bort. */
 function selectedItems() {
-  return [...state.selected].sort((a, b) => a - b).map(index => state.jobAnalysis[index]).filter(Boolean);
+  return state.jobAnalysis.filter(item => state.selected.has(item));
 }
 
 function markSelectionStale() {
@@ -222,10 +259,7 @@ function markSelectionStale() {
 }
 
 function selectSupportedOnly() {
-  state.selected = new Set(state.jobAnalysis
-    .map((item, index) => ({ item, index }))
-    .filter(({ item }) => item.status === "supported")
-    .map(({ index }) => index));
+  state.selected = new Set(state.jobAnalysis.filter(item => item.status === "supported"));
 }
 
 function refreshSelectionSummary() {
@@ -233,6 +267,7 @@ function refreshSelectionSummary() {
   $("selectionCount").textContent = `${count} valda`;
   $("generate").disabled = state.busy || state.reanalyzing || !count;
   $("reanalyze").disabled = state.busy || state.reanalyzing;
+  $("exportPdf").disabled = !state.proposals || state.creating;
   $("generate").textContent = state.proposals ? "Generera om förslagen" : "Generera textförslag";
   $("staleNotice").hidden = !(state.proposals && state.stale);
   // Bevarar modellinformationen från senaste anropet i stället för att nolla den.
@@ -266,18 +301,18 @@ function renderProposals() {
     if (section.paragraphCount > 1 && proposedLines !== section.paragraphCount) {
       warnings.push(`Sektionen har ${section.paragraphCount} stycken men förslaget har ${proposedLines} rader. Styckebrotten kan då inte bevaras — gör om förslaget med en rad per stycke om du vill behålla punktlistan.`);
     }
-    return `<article class="diff-card" data-tag="${esc(section.tag)}">
-      <div class="diff-title"><strong>${esc(section.tag)}</strong><span class="pill" data-change-pill>—</span></div>
+    return `<article class="diff-card" data-tag="${escapeHtml(section.tag)}">
+      <div class="diff-title"><strong>${escapeHtml(section.tag)}</strong><span class="pill" data-change-pill>—</span></div>
       <div class="diff-grid">
-        <div><label>NUVARANDE TEXT</label><pre>${esc(section.original.trim())}</pre></div>
-        <div><label>FÖRESLAGEN TEXT (redigerbar)</label><textarea class="proposal-input" data-tag="${esc(section.tag)}" rows="${Math.min(14, Math.max(4, section.original.split("\n").length + 2))}">${esc(approvedText(section.tag))}</textarea></div>
+        <div><label>NUVARANDE TEXT</label><pre>${escapeHtml(section.original.trim())}</pre></div>
+        <div><label>FÖRESLAGEN TEXT (redigerbar)</label><textarea class="proposal-input" data-tag="${escapeHtml(section.tag)}" rows="${Math.min(14, Math.max(4, section.original.split("\n").length + 2))}">${escapeHtml(approvedText(section.tag))}</textarea></div>
       </div>
-      <p class="reason">${esc(proposal?.reason || "Anpassning föreslagen utifrån de valda kraven.")}</p>
-      ${warnings.length ? `<ul class="section-warning">${warnings.map(item => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}
-      <div class="word-diff" data-diff="${esc(section.tag)}"></div>
+      <p class="reason">${escapeHtml(proposal?.reason || "Anpassning föreslagen utifrån de valda kraven.")}</p>
+      ${warnings.length ? `<ul class="section-warning">${warnings.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
+      <div class="word-diff" data-diff="${escapeHtml(section.tag)}"></div>
       <div class="diff-actions">
-        <button type="button" class="link-button" data-regenerate="${esc(section.tag)}">Generera om den här sektionen</button>
-        <button type="button" class="link-button" data-reset="${esc(section.tag)}">Återställ Gemini-förslaget</button>
+        <button type="button" class="link-button" data-regenerate="${escapeHtml(section.tag)}">Generera om den här sektionen</button>
+        <button type="button" class="link-button" data-reset="${escapeHtml(section.tag)}">Återställ Gemini-förslaget</button>
       </div>
     </article>`;
   }).join("");
@@ -299,6 +334,7 @@ function refreshProposalSummary() {
   $("changeCount").textContent = `${changed} ändringar`;
   $("noChanges").hidden = changed > 0;
   $("create").disabled = !state.proposals || state.creating;
+  $("exportPdf").disabled = !state.proposals || state.creating;
   for (const section of state.sections) updateWordDiff(section.tag);
   renderAdditionWarnings();
   renderConsistencyWarnings();
@@ -393,12 +429,15 @@ async function init() {
     ]);
     if (!pendingJob) throw new Error("Ingen jobbannons hittades. Gå tillbaka till LinkedIn och välj Anpassa till CV i högerklicksmenyn.");
     if (!settings.apiKey) throw new Error("Lägg till din Gemini API-nyckel i tilläggets inställningar först.");
-    if (!settings.templateUrl) throw new Error("Ange länken till din Google Docs-mall i inställningarna.");
+    const templates = resolveTemplates(settings);
+    if (!templates.length) throw new Error("Ange länken till din Google Docs-mall i inställningarna.");
 
     state.job = pendingJob;
     state.settings = settings;
     state.allowUnsupported = Boolean(settings.allowUnsupportedSkills);
-    state.templateId = extractDocId(settings.templateUrl);
+    state.templates = templates;
+    state.templateId = extractDocId(templates[0].url);
+    renderTemplatePicker();
 
     $("jobTitle").textContent = pendingJob.title || "Jobbannons – titel kunde inte identifieras";
     $("jobCompany").textContent = pendingJob.company || "Företag kunde inte identifieras automatiskt";
@@ -409,6 +448,7 @@ async function init() {
       pendingJob.location && `Plats: ${pendingJob.location}`,
       pendingJob.employmentType && `Anställning: ${pendingJob.employmentType}`,
       `Beskrivning: ${(diagnostics.descriptionLength || pendingJob.description?.length || 0).toLocaleString("sv-SE")} tecken`,
+      Number.isFinite(diagnostics.timings?.totalMs) && `Extraktionstid: ${(diagnostics.timings.totalMs / 1000).toFixed(1).replace(".", ",")} s`,
       `Extraktionskälla: ${diagnostics.descriptionSource || "okänd"}`,
       diagnostics.jobId && `Annons-ID: ${diagnostics.jobId}`,
       `Säkerhetsbedömning: ${diagnostics.confidence ?? 0} %`
@@ -440,8 +480,9 @@ async function init() {
         apiKey: settings.apiKey,
         model: settings.model,
         fallbackModels: settings.fallbackModels,
-        job: { title: pendingJob.title || "", company: pendingJob.company || "", description: pendingJob.description || pendingJob.text, diagnostics },
-        fullCvText: state.fullCvText
+        job: jobPayload(),
+        fullCvText: state.fullCvText,
+        backup: backupProvider()
       });
       analysis = { items: fresh.jobAnalysis, modelUsed: fresh.modelUsed };
       state.statusMessage = `Kravprofilen är analyserad med ${analysis.modelUsed}.`;
@@ -465,17 +506,30 @@ async function init() {
   }
 }
 
-async function quotaShortfall(needed) {
-  const usage = await readGeminiUsage();
-  const model = state.settings.model;
-  const limit = usage.limits[model] || Number(state.settings.dailyLimits?.[model]) || 0;
-  if (!limit) return null;
-  const left = Math.max(0, limit - (usage.counts[model] || 0));
-  return left < needed ? left : null;
+/** Modellerna i den ordning Gemini-anropen kan använda dem. */
+function candidateModels() {
+  return [state.settings.model, ...(state.settings.fallbackModels || [])].filter(Boolean);
 }
 
-function quotaMessage(left, needed) {
-  return `Dagens kvot för ${modelLabel(state.settings.model)} räcker inte: ${left} anrop kvar, ${needed} behövs. Räknaren nollställs vid midnatt Pacific time, och Google visar den exakta gränsen i AI Studio → Rate limits.`;
+/**
+ * Dagens kvot per modell. Ett anrop får gå till vilken modell som helst i ordningen,
+ * så genereringen stoppas först när ingen modell har utrymme kvar. En modell utan känd
+ * gräns räknas som användbar — annars skulle en okänd gräns blockera allt.
+ */
+async function quotaShortfall(needed) {
+  // En konfigurerad reservleverantör kan svara även när Gemini-kvoten är slut.
+  if (backupProvider()) return null;
+  const usage = await readGeminiUsage();
+  const models = candidateModels().map(model => {
+    const limit = dailyLimitFor(usage, state.settings, model);
+    return { model, limit, left: limit ? Math.max(0, limit - (usage.counts[model] || 0)) : null };
+  });
+  return models.some(entry => entry.left === null || entry.left >= needed) ? null : models;
+}
+
+function quotaMessage(models, needed) {
+  const list = models.map(entry => `${modelLabel(entry.model)}: ${entry.left} av ${entry.limit}`).join(", ");
+  return `Dagens kvot är slut för alla modeller (${list}) och ${needed} anrop behövs. Räknaren nollställs vid midnatt Pacific time, och Google visar den exakta gränsen i AI Studio → Rate limits.`;
 }
 
 async function generate(skipConfirm = false) {
@@ -502,11 +556,13 @@ async function generate(skipConfirm = false) {
       model: state.settings.model,
       fallbackModels: state.settings.fallbackModels,
       preferredModel: state.modelUsed,
-      job: { title: state.job.title || "", company: state.job.company || "", description: state.job.description || state.job.text, diagnostics: state.job.diagnostics || {} },
+      job: jobPayload(),
       fullCvText: state.fullCvText,
+      backup: backupProvider(),
       sections: state.sections,
       selectedRequirements: items,
-      allowUnsupported: state.allowUnsupported
+      allowUnsupported: state.allowUnsupported,
+      language: state.settings.language
     });
     state.proposals = result.sections;
     state.modelUsed = result.modelUsed;
@@ -540,8 +596,9 @@ async function reanalyze() {
       apiKey: state.settings.apiKey,
       model: state.settings.model,
       fallbackModels: state.settings.fallbackModels,
-      job: { title: state.job.title || "", company: state.job.company || "", description: state.job.description || state.job.text, diagnostics: state.job.diagnostics || {} },
-      fullCvText: state.fullCvText
+      job: jobPayload(),
+      fullCvText: state.fullCvText,
+      backup: backupProvider()
     });
     state.jobAnalysis = fresh.jobAnalysis;
     state.modelUsed = fresh.modelUsed;
@@ -587,11 +644,13 @@ async function regenerateSection(tag) {
       model: state.settings.model,
       fallbackModels: state.settings.fallbackModels,
       preferredModel: state.modelUsed,
-      job: { title: state.job.title || "", company: state.job.company || "", description: state.job.description || state.job.text, diagnostics: state.job.diagnostics || {} },
+      job: jobPayload(),
       fullCvText: state.fullCvText,
+      backup: backupProvider(),
       sections: [section],
       selectedRequirements: items,
-      allowUnsupported: state.allowUnsupported
+      allowUnsupported: state.allowUnsupported,
+      language: state.settings.language
     });
     const fresh = result.sections[0];
     state.proposals = state.proposals
@@ -613,6 +672,50 @@ async function regenerateSection(tag) {
   }
 }
 
+/**
+ * Hårda hinder som gäller både när Google Docs-kopian skapas och när PDF:en skrivs ut:
+ * påhittade uppgifter, ej godkända kompetenser, bakvända perioder och taggliknande text.
+ * Returnerar felet som ska visas, eller null när förslagen får användas.
+ */
+function blockingProblem(proposals) {
+  // Bara uppgifter som Gemini själv föreslagit blockeras: det användaren själv skriver in är användarens eget påstående.
+  const additions = unverifiedAdditions(proposals).filter(item => item.severity === "block" && (state.proposals || []).some(proposal => proposal.tag === item.tag && (proposal.text || "").includes(item.term)));
+  if (additions.length) {
+    return `Gemini föreslår uppgifter som inte finns i CV:t eller annonsen: ${additions.map(item => `${item.term} (${item.tag})`).join(", ")}. Ta bort dem innan du skapar CV:t, annars vore det en påhittad erfarenhet.`;
+  }
+  const violations = unapprovedViolations(proposals);
+  if (violations.length) {
+    return `Texten innehåller kompetenser som saknar belägg i CV:t och som du inte har godkänt: ${violations.map(item => `${item.name} (${item.tag})`).join(", ")}. Ta bort dem ur förslaget, eller tillåt ej styrkta kompetenser i inställningarna och välj dem medvetet.`;
+  }
+  const conflicts = checkProposalConsistency({ proposals, cvText: state.fullCvText }).filter(item => item.level === "block");
+  if (conflicts.length) {
+    return `Konsekvenskontrollen stoppar: ${conflicts.map(item => `${item.message} [${item.tag}]`).join(" ")} Rätta perioderna i förslagen först — CV:t är källan till årtalen.`;
+  }
+  try {
+    for (const proposal of proposals) assertSafeProposalText(proposal.tag, proposal.text);
+  } catch (error) {
+    return error;
+  }
+  return null;
+}
+
+/**
+ * PDF-export. Webbläsarens utskrift är den enda PDF-vägen som inte kräver en extern
+ * tjänst; utskriftsvyn innehåller exakt den text som godkänts i granskningen.
+ */
+function exportPdf() {
+  if (!state.proposals) return;
+  const proposals = finalProposals();
+  const problem = blockingProblem(proposals);
+  if (problem) {
+    showCreateError(problem);
+    return;
+  }
+  const title = [state.job?.title, state.job?.company].filter(Boolean).join(" – ") || "Anpassat CV";
+  $("printView").innerHTML = `<h1>${escapeHtml(title)}</h1>${printableSectionsHtml(proposals)}`;
+  window.print();
+}
+
 function unapprovedViolations(proposals) {
   const approvedNames = state.allowUnsupported
     ? selectedItems().filter(item => item.status === "not_found").map(item => item.name)
@@ -624,28 +727,10 @@ async function create() {
   const button = $("create");
   $("createError").hidden = true;
   const proposals = finalProposals();
-  // Bara uppgifter som Gemini själv föreslagit blockeras: det användaren själv skriver in är användarens eget påstående.
-  const additions = unverifiedAdditions(proposals).filter(item => item.severity === "block" && (state.proposals || []).some(proposal => proposal.tag === item.tag && (proposal.text || "").includes(item.term)));
-  if (additions.length) {
-    showCreateError(`Gemini föreslår uppgifter som inte finns i CV:t eller annonsen: ${additions.map(item => `${item.term} (${item.tag})`).join(", ")}. Ta bort dem innan du skapar CV:t, annars vore det en påhittad erfarenhet.`);
-    return;
-  }
-  const violations = unapprovedViolations(proposals);
-  if (violations.length) {
-    showCreateError(`Texten innehåller kompetenser som saknar belägg i CV:t och som du inte har godkänt: ${violations.map(item => `${item.name} (${item.tag})`).join(", ")}. Ta bort dem ur förslaget, eller tillåt ej styrkta kompetenser i inställningarna och välj dem medvetet.`);
-    return;
-  }
-  const conflicts = checkProposalConsistency({ proposals, cvText: state.fullCvText }).filter(item => item.level === "block");
-  if (conflicts.length) {
-    showCreateError(`Konsekvenskontrollen stoppar kopian: ${conflicts.map(item => `${item.message} [${item.tag}]`).join(" ")} Rätta perioderna i förslagen först — CV:t är källan till årtalen.`);
-    return;
-  }
-  // Kontrollera förslagen innan en kopia skapas, så att inget halvfärdigt
-  // dokument lämnas kvar i Google Drive.
-  try {
-    for (const proposal of proposals) assertSafeProposalText(proposal.tag, proposal.text);
-  } catch (error) {
-    showCreateError(error);
+  // Samma kontroller som PDF-exporten: inget halvfärdigt dokument lämnas i Drive.
+  const problem = blockingProblem(proposals);
+  if (problem) {
+    showCreateError(problem);
     return;
   }
   state.creating = true;
@@ -669,12 +754,13 @@ async function create() {
     const url = copy.webViewLink || `https://docs.google.com/document/d/${copy.id}/edit`;
     const entry = { id: copy.id, url, role, company, createdAt: new Date().toISOString(), jobUrl: state.job.url };
     const { history = [] } = await chrome.storage.local.get("history");
-    await chrome.storage.local.set({ history: [entry, ...history].slice(0, 100) });
+    // Historiken gallras vid varje sparning så att gamla poster inte blir kvar för evigt.
+    await chrome.storage.local.set({ history: pruneHistory([entry, ...history]) });
     chrome.runtime.sendMessage({ type: "CV_CREATED" }).catch(() => {});
     button.textContent = "CV skapat";
     const done = document.createElement("section");
     done.className = "success-box";
-    done.innerHTML = `<strong>Ditt CV är klart och kontrollerat.</strong><p>En kopia finns i Google Drive och innehåller exakt den text du godkände. Originalmallen är oförändrad.</p><a href="${esc(url)}" target="_blank" rel="noreferrer">Öppna Google Docs-dokumentet ↗</a>`;
+    done.innerHTML = `<strong>Ditt CV är klart och kontrollerat.</strong><p>En kopia finns i Google Drive och innehåller exakt den text du godkände. Originalmallen är oförändrad.</p><a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">Öppna Google Docs-dokumentet ↗</a>`;
     $("content").prepend(done);
   } catch (error) {
     state.creating = false;
@@ -687,11 +773,65 @@ async function create() {
 $("requirementsList").addEventListener("change", event => {
   const input = event.target.closest("input[type=checkbox]");
   if (!input) return;
-  const index = Number(input.dataset.index);
-  if (input.checked) state.selected.add(index);
-  else state.selected.delete(index);
+  const item = state.jobAnalysis[Number(input.dataset.index)];
+  if (!item) return;
+  if (input.checked) state.selected.add(item);
+  else state.selected.delete(item);
   markSelectionStale();
   refreshSelectionSummary();
+});
+
+/** Ett eget krav saknar Gemini-belägg och markeras därför som manuellt tillagt. */
+function addRequirement() {
+  const input = $("newRequirementName");
+  const status = $("requirementStatus");
+  const name = input.value.trim();
+  const problem = name.length < 2
+    ? "Skriv minst två tecken."
+    : state.jobAnalysis.some(item => item.name.toLowerCase() === name.toLowerCase())
+      ? "Kravet finns redan i listan."
+      : null;
+  if (problem) {
+    status.hidden = false;
+    status.textContent = problem;
+    return;
+  }
+  const item = {
+    category: "other",
+    name,
+    importance: "required",
+    evidence: "Tillagt av dig",
+    status: "supported",
+    cvEvidence: "",
+    recommendation: "Manuellt tillagt krav – du ansvarar själv för att det stämmer.",
+    manual: true
+  };
+  state.jobAnalysis.push(item);
+  state.selected.add(item);
+  input.value = "";
+  status.hidden = true;
+  markSelectionStale();
+  renderRequirements();
+}
+
+$("addRequirement").addEventListener("click", addRequirement);
+
+$("requirementsList").addEventListener("click", event => {
+  const button = event.target.closest("button[data-remove]");
+  if (!button) return;
+  // Knappen ligger inuti en label: utan preventDefault skulle klicket också
+  // markera kryssrutan.
+  event.preventDefault();
+  const [removed] = state.jobAnalysis.splice(Number(button.dataset.remove), 1);
+  if (!removed) return;
+  state.selected.delete(removed);
+  markSelectionStale();
+  renderRequirements();
+});
+
+$("templateSelect").addEventListener("change", () => {
+  const template = state.templates[Number($("templateSelect").value)];
+  if (template) state.templateId = extractDocId(template.url);
 });
 
 $("selectSupported").addEventListener("click", () => {
@@ -734,7 +874,7 @@ $("copyDiagnostics").addEventListener("click", async () => {
     job: { title: state.job?.title, company: state.job?.company, url: state.job?.url, location: state.job?.location, employmentType: state.job?.employmentType },
     diagnostics: state.job?.diagnostics || {},
     sections: state.sections.map(section => section.tag),
-    settings: { model: state.settings.model, fallbackModels: state.settings.fallbackModels },
+    settings: { model: state.settings.model, fallbackModels: state.settings.fallbackModels, backupProvider: backupProvider()?.model || null },
     usage: await readGeminiUsage()
   };
   try {
@@ -746,6 +886,7 @@ $("copyDiagnostics").addEventListener("click", async () => {
     console.log(JSON.stringify(payload, null, 2));
   }
 });
+$("exportPdf").addEventListener("click", exportPdf);
 $("create").addEventListener("click", create);
 $("cancel").addEventListener("click", () => window.close());
 

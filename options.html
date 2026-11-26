@@ -8,11 +8,16 @@
   <main class="settings-wrap">
     <header class="brand"><div class="brand-mark">CV</div><div><h1>CV Anpassaren</h1><p>Inställningar</p></div></header>
     <section class="panel">
-      <h2>Google Docs-mall</h2>
-      <label for="templateUrl">Länk till CV-mallen</label>
+      <h2>Google Docs-mallar</h2>
+      <ul id="templateList" class="template-list"></ul>
+      <p id="templateListStatus" class="field-status" hidden></p>
+      <label for="templateName">Namn på mallen (valfritt)</label>
+      <input id="templateName" type="text" placeholder="Till exempel Utvecklare">
+      <label for="templateUrl">Länk till mallen</label>
       <input id="templateUrl" type="url" placeholder="https://docs.google.com/document/d/.../edit">
       <p id="statusTemplateUrl" class="field-status" hidden></p>
-      <p class="hint">Originalmallen ändras aldrig. Varje CV skapas som en separat kopia i Google Drive.</p>
+      <div class="actions"><button id="addTemplate" class="secondary" type="button">Lägg till mallen</button></div>
+      <p class="hint">Originalmallen ändras aldrig. Varje CV skapas som en separat kopia i Google Drive. Har du flera mallar väljer du i förhandsgranskningen vilken som används.</p>
       <div class="row"><button id="connectGoogle" class="secondary">Anslut Google-konto</button><span id="googleStatus" class="status">Inte kontrollerad</span></div>
     </section>
     <section class="panel" id="onboarding">
@@ -47,9 +52,16 @@
         <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option>
       </select>
       <p class="hint">Om den primära modellen är överbelastad eller når sin gratiskvot provas reservmodellerna automatiskt.</p>
+      <label for="language">Språk i den genererade CV-texten</label>
+      <select id="language">
+        <option value="sv">Svenska</option>
+        <option value="en">Engelska</option>
+      </select>
+      <p class="hint">Gränssnittet är alltid på svenska. Språkvalet styr bara texten som Gemini skriver i CV-sektionerna.</p>
       <label for="dailyLimit">Daglig gräns för primär modell (valfritt)</label>
       <input id="dailyLimit" type="number" min="0" step="1" placeholder="0 = okänd">
       <p id="statusDailyLimit" class="field-status" hidden></p>
+      <p id="dailyLimitsSummary" class="hint"></p>
       <p class="hint">Google publicerar inte gratisnivåns dygnsgräns i API:et; den visas i AI Studio → Rate limits. Ange samma siffra här så visar räknaren i förhandsgranskningen hur många anrop du har kvar. Tillägget lär sig också gränsen automatiskt när ett 429-svar namnger den.</p>
       <label for="fallbackModel1">Reservmodell 1</label>
       <select id="fallbackModel1">
@@ -69,6 +81,18 @@
       <p class="hint">Endast modeller med kostnadsfri standardnivå kan väljas. Tillägget avvisar andra modell-ID:n och växlar aldrig till en betald modell. Google kan ändra sina priser och kvoter över tid.</p>
     </section>
     <section class="panel">
+      <h2>Reservleverantör</h2>
+      <p class="hint">Om ingen av Gemini-modellerna kan svara kan tillägget i stället använda en OpenAI-kompatibel tjänst som du anger själv. Lämna fälten tomma för att bara använda Gemini.</p>
+      <label for="backupBaseUrl">Adress till API:et</label>
+      <input id="backupBaseUrl" type="url" placeholder="https://api.openai.com/v1">
+      <label for="backupModel">Modellnamn</label>
+      <input id="backupModel" type="text" placeholder="Till exempel gpt-4o-mini">
+      <label for="backupApiKey">API-nyckel hos reservleverantören</label>
+      <input id="backupApiKey" type="password" autocomplete="off" placeholder="Klistra in nyckeln">
+      <p id="statusBackup" class="field-status" hidden></p>
+      <p class="hint">Samma annonstext och CV-text skickas då till den adressen. Nyckeln sparas bara i den här webbläsarprofilen och synkas aldrig. Chrome frågar efter åtkomst till adressen när du sparar den.</p>
+    </section>
+    <section class="panel">
       <h2>Kontrollera mallen</h2>
       <p class="hint">Läser CV-mallen och visar vilka taggade sektioner som hittas, samt vilka rubriker som ser ut som sektioner men saknar taggar. Originalmallen ändras aldrig.</p>
       <div class="actions"><button id="checkTemplate" class="secondary" type="button">Kontrollera mallen</button></div>
@@ -81,9 +105,10 @@
     </section>
     <section class="panel">
       <h2>Integritet och data</h2>
-      <p class="hint"><strong>Det som lämnar datorn:</strong> annonsens text och CV-texten skickas till Google Gemini för analys och textförslag. Mallen och kopian hanteras via Google Docs- och Drive-API:erna. Tillägget har ingen egen server och skickar inget någon annanstans.</p>
+      <p class="hint"><strong>Det som lämnar datorn:</strong> annonsens text och CV-texten skickas till Google Gemini för analys och textförslag. Mallen och kopian hanteras via Google Docs- och Drive-API:erna. Tillägget har ingen egen server och skickar inget någon annanstans. Om du har angett en reservleverantör skickas samma text dit när Gemini inte kan svara.</p>
       <p class="hint"><strong>Gratisnivån hos Gemini:</strong> Googles villkor för gratisnivån innebär att innehåll kan användas för att förbättra deras produkter. Vill du undvika det är en betald nyckel hos Google det enda alternativet — tillägget använder aldrig betalmodeller av sig själv.</p>
       <p class="hint"><strong>Det som sparas lokalt:</strong> API-nyckeln (endast i den här webbläsarprofilen), inställningar, cachade kravanalyser, anropsräknaren och historiken över skapade dokument. Inställningarna synkas mellan dina Chrome-profiler, men aldrig API-nyckeln.</p>
+      <p id="historySummary" class="hint"></p>
       <div class="data-actions"><button id="clearAnalyses" class="secondary" type="button">Rensa kravanalyser</button><button id="clearUsage" class="secondary" type="button">Nollställ anropsräknaren</button><button id="clearHistory" class="secondary" type="button">Rensa historiken</button></div>
       <p id="dataStatus" class="status" aria-live="polite"></p>
     </section>

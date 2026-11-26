@@ -363,11 +363,19 @@
   }
 
   async function extractJob() {
+    // Tiderna sparas i diagnostiken så att en långsam extraktion kan skiljas från
+    // en långsam sida: väntan på ett stabilt DOM är oftast den största posten.
+    const startedAt = Date.now();
+    const domStart = Date.now();
     await waitForStableDom(3200,450);
+    const domWaitMs = Date.now() - domStart;
     let roots = semanticRoots();
     let descriptionScope = findJobDescriptionSection(roots);
+    let expansionWaitMs = 0;
     if (descriptionScope && expandRelevantSections(descriptionScope) > 0) {
+      const expansionStart = Date.now();
       await waitForStableDom(2200,450);
+      expansionWaitMs = Date.now() - expansionStart;
       roots = semanticRoots();
       descriptionScope = findJobDescriptionSection(roots);
     }
@@ -393,7 +401,8 @@
       diagnostics:{engine:'semantic-content-v6', jobId:getCurrentJobId(), titleSource:titleInfo.source, titleAmbiguous:Boolean(titleInfo.ambiguous), descriptionSource:desc.source, descriptionLength:description.length,
         descriptionScore:desc.score, descriptionScoped:Boolean(desc.scoped), descriptionScopeFound:Boolean(descriptionScope), descriptionMayBeIncomplete:Boolean(desc.mayBeIncomplete), extractionWarnings,
         candidateCount:desc.candidates, titleFound:Boolean(titleInfo.value), companyFound:Boolean(meta.company), locationFound:Boolean(meta.location),
-        jsonLdFound:Boolean(posting), confidence, roots:summarizeRoots(roots), capturedAt:new Date().toISOString()}
+        jsonLdFound:Boolean(posting), confidence, roots:summarizeRoots(roots), capturedAt:new Date().toISOString(),
+        timings:{totalMs:Date.now()-startedAt, domWaitMs, expansionWaitMs}}
     };
   }
 

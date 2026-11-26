@@ -21,6 +21,8 @@
 <div id="analysisError" class="error-box" hidden></div>
     <p id="unsupportedNotice" class="notice" hidden></p>
     <div class="row"><button id="selectSupported" class="secondary" type="button">Välj alla med stöd</button><button id="clearSelection" class="secondary" type="button">Rensa val</button></div>
+    <div class="row requirement-add"><input id="newRequirementName" type="text" placeholder="Lägg till eget krav"><button id="addRequirement" class="secondary" type="button">Lägg till krav</button></div>
+    <p id="requirementStatus" class="hint" hidden></p>
     <div id="requirementsList" class="job-analysis-list"></div>
     <div class="actions"><button id="generate" class="primary" type="button" disabled>Generera textförslag</button><span id="generateStatus" class="status" aria-live="polite"></span></div>
   </section>
@@ -34,7 +36,8 @@
     <div id="noChanges" class="empty" hidden><strong>Inga innehållsändringar behövs.</strong><span>Taggarna tas ändå bort i den färdiga kopian.</span></div>
   </section>
   <div id="createError" class="error-box" hidden></div>
-  <div class="sticky-actions"><button id="create" class="primary" type="button" disabled>Godkänn och skapa CV</button><button id="cancel" class="secondary" type="button">Avbryt</button></div>
+  <div class="sticky-actions"><select id="templateSelect" hidden aria-label="Mall att skapa CV:t från"></select><button id="create" class="primary" type="button" disabled>Godkänn och skapa CV</button><button id="exportPdf" class="secondary" type="button" disabled>Exportera som PDF</button><button id="cancel" class="secondary" type="button">Avbryt</button></div>
   <p class="footnote">Endast text inom taggade sektioner kan ändras. All annan CV-text lämnas orörd. Kompetenser utan belägg läggs aldrig automatiskt till.</p>
 </div>
+<div id="printView" class="print-view" aria-hidden="true"></div>
 </main><script src="preview.js" type="module"></script></body></html>

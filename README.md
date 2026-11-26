@@ -8,10 +8,12 @@ En Manifest V3-extension som läser en LinkedIn-jobbannons, analyserar en Google
 - **Ordmarkerad diff** per sektion: tillagd text i grönt, borttagen i rött, uppdateras när du redigerar förslaget.
 - **Generera om den här sektionen** gör ett anrop för en sektion i stället för alla, och ett anrop avbryts med förklaring om räknaren visar att dagens kvot är slut.
 - **Skärpt fabriceringsskydd**: årtal och siffror som saknas i CV:t, originalet och annonsen blockerar skapandet; nya egennamn visas som varning.
-- **Kopiera diagnostik** samlar annons, extraktionsstatus, modellval och kvotläge till urklipp.
-- **Integritet och data**: beskriver vad som lämnar datorn och låter dig rensa kravanalyser, anropsräknare och historik.
+- **Kopiera diagnostik** samlar annons, extraktionsstatus, modellval, kvotläge och extraktionens tider (totalt, DOM-väntan och expansion) till urklipp.
+- **Exportera som PDF** skriver ut exakt den godkända CV-texten i en ren utskriftsvy (välj Spara som PDF i webbläsaren). Samma hårda kontroller som vid skapandet gäller, så en bakvänd period eller en påhittad uppgift stoppar även utskriften.
+- **Integritet och data**: beskriver vad som lämnar datorn och låter dig rensa kravanalyser, anropsräknare och historik. Historiken gallras automatiskt: högst 100 poster, och inget äldre än 180 dagar.
 - Inställningar synkas mellan Chrome-profiler via `chrome.storage.sync`; API-nyckeln lämnar aldrig datorn.
 - Reservmodellerna ordnas automatiskt efter vilka som faktiskt svarat, med din ordning som utgångspunkt vid lika resultat.
+- En valfri **reservleverantör** (OpenAI-kompatibel adress, modell och nyckel) kan anges i Inställningar och används bara när ingen Gemini-modell kan svara. Även då gäller samma regler för vad som får skrivas; texten skickas till den adress du själv anger och nyckeln lämnar aldrig datorn.
 
 ## v0.3.0 – strukturell Google Docs-redigering och kompetensval
 
@@ -69,7 +71,7 @@ Den här versionen ersätter prototypens tillplattade textpositioner med dokumen
 - Användaren granskar ändringar innan en Google Docs-kopia skapas.
 - Räknaren i övre högra hörnet visar hur många Gemini-anrop tillägget har gjort under det aktuella Pacific-dygnet. Gemini API saknar endpoint för förbrukad kvot, så räkningen görs lokalt per modell; dygnsgränsen läses från ett 429-svar (som namnger `GenerateRequestsPerDayPerProjectPerModel-FreeTier`) eller från fältet i Inställningar, och först då visas hur många anrop som är kvar.
 - Alla taggar i formatet `[TAG]` och `[/TAG]` tas bort i den skapade kopian.
-- Historiken sparas lokalt i Chrome. Själva dokumenten ligger i Google Drive.
+- Historiken sparas lokalt i Chrome och gallras automatiskt (högst 100 poster, 180 dagar). Själva dokumenten ligger i Google Drive.
 
 ## Förutsättningar
 

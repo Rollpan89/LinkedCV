@@ -188,7 +188,7 @@ function retryDelayMs(attempt, response) {
   return Math.max(exponential, fromHeader) + Math.floor(Math.random() * 500);
 }
 
-async function callGeminiJson({ apiKey, modelOrder, systemInstruction, userPayload, temperature = 0.1 }) {
+async function callGeminiModels({ apiKey, modelOrder, systemInstruction, userPayload, temperature = 0.1 }) {
   const ordered = [...new Set(modelOrder.filter(id => FREE_MODEL_IDS.has(id)))];
   if (!ordered.length) ordered.push(DEFAULT_MODEL);
   const body = JSON.stringify({
@@ -273,6 +273,88 @@ async function callGeminiJson({ apiKey, modelOrder, systemInstruction, userPaylo
   throw modelFailureError("Ingen av de kostnadsfria Gemini-modellerna kunde svara.", details);
 }
 
+/**
+ * Reservleverantör: en OpenAI-kompatibel slutpunkt som användaren anger själv.
+ * Den används bara när ingen av Gemini-modellerna kan svara, och nyckeln sparas
+ * lokalt precis som Gemini-nyckeln. Ofullständiga uppgifter ger ingen reserv.
+ */
+export function resolveBackupProvider(settings = {}) {
+  const baseUrl = String(settings.backupBaseUrl || "").trim().replace(/\/+$/, "");
+  const apiKey = String(settings.backupApiKey || "").trim();
+  const model = String(settings.backupModel || "").trim();
+  if (!/^https:\/\/[^\s]+$/.test(baseUrl) || !apiKey || !model) return null;
+  return { baseUrl, apiKey, model };
+}
+
+const backupEndpoint = baseUrl => (/\/chat\/completions$/.test(baseUrl) ? baseUrl : `${baseUrl}/chat/completions`);
+
+/**
+ * Ett enda anrop till reservleverantören. Ingen omförsökning: en okänd tjänst ska
+ * inte anropas upprepade gånger, och felet visas i stället tillsammans med Geminis.
+ */
+async function callBackupJson({ backup, systemInstruction, userPayload, temperature = 0.1 }) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
+  let response;
+  try {
+    response = await fetch(backupEndpoint(backup.baseUrl), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${backup.apiKey}` },
+      body: JSON.stringify({
+        model: backup.model,
+        temperature,
+        messages: [
+          { role: "system", content: systemInstruction },
+          { role: "user", content: JSON.stringify(userPayload) }
+        ]
+      }),
+      signal: controller.signal
+    });
+  } catch (error) {
+    throw new Error(error?.name === "AbortError" ? "timeout" : (error?.message || "nätverksfel"));
+  } finally {
+    clearTimeout(timeout);
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(`HTTP ${response.status} – ${String(data?.error?.message || "").slice(0, 240)}`);
+  const raw = String(data?.choices?.[0]?.message?.content || "").trim();
+  if (!raw) throw new Error("tomt svar");
+  const text = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("ogiltigt JSON-svar");
+  }
+  return {
+    parsed,
+    modelUsed: `${backup.model} (reservleverantör)`,
+    finishReason: data?.choices?.[0]?.finish_reason || "",
+    blockReason: ""
+  };
+}
+
+/**
+ * Provar Gemini-modellerna och faller sedan tillbaka på reservleverantören.
+ * Reservens fel läggs till i den ursprungliga felrutan, så att båda orsakerna syns.
+ */
+async function callGeminiJson(options) {
+  const { backup, ...gemini } = options;
+  try {
+    return await callGeminiModels(gemini);
+  } catch (error) {
+    if (!backup) throw error;
+    try {
+      return await callBackupJson({ backup, systemInstruction: gemini.systemInstruction, userPayload: gemini.userPayload, temperature: gemini.temperature });
+    } catch (backupError) {
+      const line = `Reservleverantören ${backup.model} svarade inte heller: ${backupError.message}.`;
+      if (Array.isArray(error.details)) error.details = [...error.details, line];
+      else error.message = `${error.message} ${line}`;
+      throw error;
+    }
+  }
+}
+
 const ANALYSIS_INSTRUCTION = `Du är en noggrann svensk kravanalytiker för jobbannonser.
 
 Analysera hela annonsbeskrivningen och identifiera samtliga relevanta punkter: tekniska kompetenser, verktyg och plattformar, metoder och arbetssätt, personliga kompetenser, yrkeserfarenhet och antal år, utbildning, certifieringar, ansvar och arbetsuppgifter, samt meriterande önskemål.
@@ -286,7 +368,8 @@ Säkerhetsregler: CV:t är enda källan till kandidatens erfarenheter. Jobbannon
 Svara ENDAST med giltig JSON:
 {"jobAnalysis":[{"category":"technical|tools|methods|personal|experience|education|responsibility|other","name":"kort namn på kravet","importance":"required|preferred|stack|responsibility|context","evidence":"belägg i annonsen","status":"supported|transferable|not_found","cvEvidence":"belägg i CV:t eller tom sträng","recommendation":"konkret rekommendation"}]}`;
 
-const SECTION_INSTRUCTION = `Du är en noggrann svensk CV-redaktör.
+export function sectionInstruction(language) {
+  return `Du är en noggrann svensk CV-redaktör.
 
 Du får en jobbannons, hela CV:t som faktabank, en lista med de krav som användaren uttryckligen har valt, och de redigerbara CV-sektionerna.
 
@@ -297,7 +380,7 @@ Regler som aldrig får brytas:
 - CV:t är enda källan till kandidatens erfarenheter. Hitta aldrig på arbetsgivare, roller, årtal, resultat, utbildning eller kompetenser.
 - Lyft bara fram krav som finns i listan över valda krav. Krav som inte är valda får inte föras in.
 - Ett valt krav med status not_found får bara nämnas om det uttryckligen är tillåtet i underlaget (allow_unsupported_skills). Även då får det inte påstås vara dokumenterat eller bevisat.
-- Behåll svenska, saklig ton och ungefär samma längd som originaltexten.
+- Behåll ${languageName(language)}, saklig ton och ungefär samma längd som originaltexten.
 - Ändra inte sektionens struktur. Antalet rader ska vara detsamma som i originaltexten: en sektion med tre rader eller punkter ska ha tre rader, aldrig en enda sammanslagen rad.
 - En sektion som är en punktlista behåller en rad per punkt och punktlistans ordning.
 - Om ingen sanningsenlig förbättring finns, returnera originaltexten oförändrad.
@@ -306,6 +389,7 @@ Regler som aldrig får brytas:
 Svara ENDAST med giltig JSON:
 {"sections":[{"tag":"TAGNAMN","text":"ny eller oförändrad text","reason":"kort motivering"}]}
 Returnera exakt en post per redigerbar sektion och använd exakt samma taggnamn.`;
+}
 
 const MAX_REQUIREMENTS = 80;
 
@@ -432,22 +516,24 @@ function validateJobAnalysis(items, context = {}) {
   return normalized;
 }
 
-export async function analyzeJob({ apiKey, model, fallbackModels = [], job, fullCvText }) {
+export async function analyzeJob({ apiKey, model, fallbackModels = [], job, fullCvText, backup }) {
   const { parsed, modelUsed, finishReason, blockReason } = await callGeminiJson({
     apiKey,
     modelOrder: await rankedModelOrder([model, ...fallbackModels]),
     systemInstruction: ANALYSIS_INSTRUCTION,
-    userPayload: { job_ad: job, complete_cv: fullCvText }
+    userPayload: { job_ad: job, complete_cv: fullCvText },
+    backup
   });
   return { jobAnalysis: validateJobAnalysis(findRequirementsArray(parsed), { parsed, finishReason, blockReason }), modelUsed };
 }
 
-export async function generateSections({ apiKey, model, fallbackModels = [], preferredModel, job, fullCvText, sections, selectedRequirements = [], allowUnsupported = false }) {
+export async function generateSections({ apiKey, model, fallbackModels = [], preferredModel, job, fullCvText, sections, selectedRequirements = [], allowUnsupported = false, language = DEFAULT_LANGUAGE, backup }) {
   const { parsed, modelUsed } = await callGeminiJson({
     apiKey,
     modelOrder: await rankedModelOrder([preferredModel, model, ...fallbackModels]),
-    systemInstruction: SECTION_INSTRUCTION,
+    systemInstruction: sectionInstruction(language),
     temperature: 0.1,
+    backup,
     userPayload: {
       job_ad: job,
       complete_cv_as_context: fullCvText,
@@ -756,15 +842,36 @@ export async function readSettings() {
 }
 
 export async function writeSettings(settings) {
-  const { apiKey = "", ...syncable } = settings;
+  // API-nycklarna stannar i den här profilen; allt annat får synkas.
+  const { apiKey = "", backupApiKey = "", ...syncable } = settings;
   const stamp = Date.now();
-  await chrome.storage.local.set({ settings: { ...syncable, apiKey }, settingsStamp: stamp });
+  await chrome.storage.local.set({ settings: { ...syncable, apiKey, backupApiKey }, settingsStamp: stamp });
   try {
     await chrome.storage.sync.set({ settings: syncable, settingsStamp: stamp });
   } catch {
     // Synk är bekvämlighet. Ändringen ligger kvar lokalt med sin tidsstämpel och kan
     // därför inte skrivas över av äldre värden som blev kvar i sync.
   }
+}
+
+/**
+ * Historiken över skapade CV:n är en bekvämlighet, inte ett arkiv. Posterna gallras
+ * därför automatiskt: poster utan id räknas som skräp, poster äldre än
+ * HISTORY_MAX_AGE_DAYS tas bort och listan kapas till HISTORY_LIMIT. Poster med
+ * okänt datum behålls, eftersom de kan komma från en äldre version av tillägget.
+ */
+export const HISTORY_LIMIT = 100;
+export const HISTORY_MAX_AGE_DAYS = 180;
+
+export function pruneHistory(entries, { now = Date.now(), limit = HISTORY_LIMIT, maxAgeDays = HISTORY_MAX_AGE_DAYS } = {}) {
+  const cutoff = now - maxAgeDays * 24 * 60 * 60 * 1000;
+  return (Array.isArray(entries) ? entries : [])
+    .filter(entry => entry && typeof entry.id === "string" && entry.id)
+    .map(entry => ({ entry, at: Date.parse(entry.createdAt) }))
+    .filter(({ at }) => !Number.isFinite(at) || at >= cutoff)
+    .sort((a, b) => (Number.isFinite(b.at) ? b.at : -Infinity) - (Number.isFinite(a.at) ? a.at : -Infinity))
+    .slice(0, Math.max(0, limit))
+    .map(({ entry }) => entry);
 }
 
 export async function clearAnalysisCache() {
@@ -850,6 +957,55 @@ export function summarizeTemplate(doc) {
 /* ------------------------------------------------------------------ *
  * Google OAuth och REST
  * ------------------------------------------------------------------ */
+
+/**
+ * Utskriftsvyn för PDF-export: en rubrik per sektion och ett stycke per rad, så att
+ * styckebrotten i det godkända förslaget syns i filen. Allt escapas — utskriften
+ * visar exakt den text användaren godkände, utan taggar.
+ */
+export function printableSectionsHtml(sections = []) {
+  return (Array.isArray(sections) ? sections : []).map(section => {
+    const lines = String(section?.text ?? "").split("\n");
+    return `<section><h2>${escapeHtml(section?.tag || "")}</h2>${lines.map(line => `<p>${escapeHtml(line) || "&nbsp;"}</p>`).join("")}</section>`;
+  }).join("");
+}
+
+/** Escapar text som ska in i HTML; sidorna bygger listrader som strängar. */
+export function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
+}
+
+/** Känd dygnsgräns för en modell: från ett 429-svar eller användarens inställning. */
+export function dailyLimitFor(usage, settings = {}, model) {
+  return usage.limits[model] || Number(settings.dailyLimits?.[model]) || 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * Mallar och språk
+ * ------------------------------------------------------------------ */
+
+export const LANGUAGES = ["sv", "en"];
+export const DEFAULT_LANGUAGE = "sv";
+
+const LANGUAGE_NAMES = { sv: "svenska", en: "engelska" };
+
+/** Språknamnet som sektionsinstruktionen använder, med svenska som standard. */
+export function languageName(language) {
+  return LANGUAGE_NAMES[language] || LANGUAGE_NAMES[DEFAULT_LANGUAGE];
+}
+
+/**
+ * Mallistan. Nya inställningar har en lista med namn och länkar, äldre har en enda
+ * templateUrl. Originalmallen ändras aldrig; listan avgör bara vilka mallar som får
+ * kopieras.
+ */
+export function resolveTemplates(settings = {}) {
+  const templates = (Array.isArray(settings.templates) ? settings.templates : [])
+    .map(item => ({ name: String(item?.name || "").trim() || "Namnlös mall", url: String(item?.url || "").trim() }))
+    .filter(item => item.url);
+  if (templates.length) return templates;
+  return settings.templateUrl ? [{ name: "Min mall", url: String(settings.templateUrl).trim() }] : [];
+}
 
 export async function getGoogleToken(interactive = true) {
   const result = await chrome.identity.getAuthToken({ interactive });

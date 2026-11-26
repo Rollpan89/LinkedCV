@@ -20,13 +20,17 @@
 **Robusthet och data**
 
 - LinkedIn-uttaget faller tillbaka på sidans metabeskrivning och varnar när texten är förkortad.
-- **Kopiera diagnostik** i förhandsgranskningen samlar annons, extraktionsstatus, modellval och kvotläge för felsökning.
+- **Kopiera diagnostik** i förhandsgranskningen samlar annons, extraktionsstatus, modellval, kvotläge och extraktionens tider för felsökning.
 - Ny **Integritet och data**-panel: vad som lämnar datorn, vad som sparas lokalt, och knappar för att rensa kravanalyser, anropsräknare och historik.
-- Inställningar synkas via `chrome.storage.sync`; API-nyckeln stannar alltid lokalt.
+- Inställningar synkas via `chrome.storage.sync`; API-nycklarna stannar alltid lokalt.
+- Historiken gallras automatiskt: högst 100 poster och inget äldre än 180 dagar. Gallringen sker både när ett CV sparas och när Inställningar öppnas.
+- Extraktionen mäter sina egna tider (totalt, väntan på stabilt DOM och expansion) och visar dem i diagnostiken.
+- **Exportera som PDF** skriver ut exakt den godkända texten i en ren utskriftsvy. Samma blockerande kontroller som vid skapandet gäller.
 
 **Modeller**
 
 - Reservmodellerna ordnas automatiskt efter vilka som faktiskt svarat, med användarens ordning som utgångspunkt.
+- Valfri reservleverantör: en OpenAI-kompatibel adress, modell och nyckel kan anges och används bara när ingen Gemini-modell kan svara. Behörighet till adressen begärs när den sparas, och nyckeln synkas aldrig.
 
 ## 0.3.0
 
