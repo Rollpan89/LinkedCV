@@ -12,7 +12,6 @@ En Manifest V3-extension som läser en LinkedIn-jobbannons, analyserar en Google
 - **Integritet och data**: beskriver vad som lämnar datorn och låter dig rensa kravanalyser, anropsräknare och historik. Historiken gallras automatiskt: högst 100 poster, och inget äldre än 180 dagar.
 - Inställningar synkas mellan Chrome-profiler via `chrome.storage.sync`; API-nyckeln lämnar aldrig datorn.
 - Reservmodellerna ordnas automatiskt efter vilka som faktiskt svarat, med din ordning som utgångspunkt vid lika resultat.
-- En valfri **reservleverantör** (OpenAI-kompatibel adress, modell och nyckel) kan anges i Inställningar och används bara när ingen Gemini-modell kan svara. Även då gäller samma regler för vad som får skrivas; texten skickas till den adress du själv anger och nyckeln lämnar aldrig datorn.
 
 ## v0.3.0 – strukturell Google Docs-redigering och kompetensval
 

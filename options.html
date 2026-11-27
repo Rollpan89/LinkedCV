@@ -220,42 +220,7 @@
                 </p>
             </section>
 
-            <section class="panel">
-                <h2>Reservleverantör</h2>
-                <p class="hint">
-                    Om ingen av Gemini-modellerna kan svara kan tillägget i
-                    stället använda en OpenAI-kompatibel tjänst som du anger
-                    själv. Lämna fälten tomma för att bara använda Gemini.
-                </p>
-                <label for="backupBaseUrl">Adress till API:et</label>
-                <input
-                    id="backupBaseUrl"
-                    type="url"
-                    placeholder="https://api.openai.com/v1"
-                />
-                <label for="backupModel">Modellnamn</label>
-                <input
-                    id="backupModel"
-                    type="text"
-                    placeholder="Till exempel gpt-4o-mini"
-                />
-                <label for="backupApiKey"
-                    >API-nyckel hos reservleverantören</label
-                >
-                <input
-                    id="backupApiKey"
-                    type="password"
-                    autocomplete="off"
-                    placeholder="Klistra in nyckeln"
-                />
-                <p id="statusBackup" class="field-status" hidden></p>
-                <p class="hint">
-                    Samma annonstext och CV-text skickas då till den adressen.
-                    Nyckeln sparas bara i den här webbläsarprofilen och synkas
-                    aldrig. Chrome frågar efter åtkomst till adressen när du
-                    sparar den.
-                </p>
-            </section>
+            
 
             <section class="panel">
                 <h2>Kompetenser</h2>
@@ -280,8 +245,7 @@
                     CV-texten skickas till Google Gemini för analys och
                     textförslag. Mallen och kopian hanteras via Google Docs- och
                     Drive-API:erna. Tillägget har ingen egen server och skickar
-                    inget någon annanstans. Om du har angett en reservleverantör
-                    skickas samma text dit när Gemini inte kan svara.
+                    inget någon annanstans.
                 </p>
                 <p class="hint">
                     <strong>Gratisnivån hos Gemini:</strong> Googles villkor för

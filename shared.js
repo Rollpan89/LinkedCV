@@ -273,88 +273,6 @@ async function callGeminiModels({ apiKey, modelOrder, systemInstruction, userPay
   throw modelFailureError("Ingen av de kostnadsfria Gemini-modellerna kunde svara.", details);
 }
 
-/**
- * Reservleverantör: en OpenAI-kompatibel slutpunkt som användaren anger själv.
- * Den används bara när ingen av Gemini-modellerna kan svara, och nyckeln sparas
- * lokalt precis som Gemini-nyckeln. Ofullständiga uppgifter ger ingen reserv.
- */
-export function resolveBackupProvider(settings = {}) {
-  const baseUrl = String(settings.backupBaseUrl || "").trim().replace(/\/+$/, "");
-  const apiKey = String(settings.backupApiKey || "").trim();
-  const model = String(settings.backupModel || "").trim();
-  if (!/^https:\/\/[^\s]+$/.test(baseUrl) || !apiKey || !model) return null;
-  return { baseUrl, apiKey, model };
-}
-
-const backupEndpoint = baseUrl => (/\/chat\/completions$/.test(baseUrl) ? baseUrl : `${baseUrl}/chat/completions`);
-
-/**
- * Ett enda anrop till reservleverantören. Ingen omförsökning: en okänd tjänst ska
- * inte anropas upprepade gånger, och felet visas i stället tillsammans med Geminis.
- */
-async function callBackupJson({ backup, systemInstruction, userPayload, temperature = 0.1 }) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60000);
-  let response;
-  try {
-    response = await fetch(backupEndpoint(backup.baseUrl), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${backup.apiKey}` },
-      body: JSON.stringify({
-        model: backup.model,
-        temperature,
-        messages: [
-          { role: "system", content: systemInstruction },
-          { role: "user", content: JSON.stringify(userPayload) }
-        ]
-      }),
-      signal: controller.signal
-    });
-  } catch (error) {
-    throw new Error(error?.name === "AbortError" ? "timeout" : (error?.message || "nätverksfel"));
-  } finally {
-    clearTimeout(timeout);
-  }
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(`HTTP ${response.status} – ${String(data?.error?.message || "").slice(0, 240)}`);
-  const raw = String(data?.choices?.[0]?.message?.content || "").trim();
-  if (!raw) throw new Error("tomt svar");
-  const text = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new Error("ogiltigt JSON-svar");
-  }
-  return {
-    parsed,
-    modelUsed: `${backup.model} (reservleverantör)`,
-    finishReason: data?.choices?.[0]?.finish_reason || "",
-    blockReason: ""
-  };
-}
-
-/**
- * Provar Gemini-modellerna och faller sedan tillbaka på reservleverantören.
- * Reservens fel läggs till i den ursprungliga felrutan, så att båda orsakerna syns.
- */
-async function callGeminiJson(options) {
-  const { backup, ...gemini } = options;
-  try {
-    return await callGeminiModels(gemini);
-  } catch (error) {
-    if (!backup) throw error;
-    try {
-      return await callBackupJson({ backup, systemInstruction: gemini.systemInstruction, userPayload: gemini.userPayload, temperature: gemini.temperature });
-    } catch (backupError) {
-      const line = `Reservleverantören ${backup.model} svarade inte heller: ${backupError.message}.`;
-      if (Array.isArray(error.details)) error.details = [...error.details, line];
-      else error.message = `${error.message} ${line}`;
-      throw error;
-    }
-  }
-}
-
 const ANALYSIS_INSTRUCTION = `Du är en noggrann svensk kravanalytiker för jobbannonser.
 
 Analysera hela annonsbeskrivningen och identifiera samtliga relevanta punkter: tekniska kompetenser, verktyg och plattformar, metoder och arbetssätt, personliga kompetenser, yrkeserfarenhet och antal år, utbildning, certifieringar, ansvar och arbetsuppgifter, samt meriterande önskemål.
@@ -516,24 +434,22 @@ function validateJobAnalysis(items, context = {}) {
   return normalized;
 }
 
-export async function analyzeJob({ apiKey, model, fallbackModels = [], job, fullCvText, backup }) {
-  const { parsed, modelUsed, finishReason, blockReason } = await callGeminiJson({
+export async function analyzeJob({ apiKey, model, fallbackModels = [], job, fullCvText }) {
+  const { parsed, modelUsed, finishReason, blockReason } = await callGeminiModels({
     apiKey,
     modelOrder: await rankedModelOrder([model, ...fallbackModels]),
     systemInstruction: ANALYSIS_INSTRUCTION,
-    userPayload: { job_ad: job, complete_cv: fullCvText },
-    backup
+    userPayload: { job_ad: job, complete_cv: fullCvText }
   });
   return { jobAnalysis: validateJobAnalysis(findRequirementsArray(parsed), { parsed, finishReason, blockReason }), modelUsed };
 }
 
-export async function generateSections({ apiKey, model, fallbackModels = [], preferredModel, job, fullCvText, sections, selectedRequirements = [], allowUnsupported = false, language = DEFAULT_LANGUAGE, backup }) {
-  const { parsed, modelUsed } = await callGeminiJson({
+export async function generateSections({ apiKey, model, fallbackModels = [], preferredModel, job, fullCvText, sections, selectedRequirements = [], allowUnsupported = false, language = DEFAULT_LANGUAGE }) {
+  const { parsed, modelUsed } = await callGeminiModels({
     apiKey,
     modelOrder: await rankedModelOrder([preferredModel, model, ...fallbackModels]),
     systemInstruction: sectionInstruction(language),
     temperature: 0.1,
-    backup,
     userPayload: {
       job_ad: job,
       complete_cv_as_context: fullCvText,
@@ -842,10 +758,10 @@ export async function readSettings() {
 }
 
 export async function writeSettings(settings) {
-  // API-nycklarna stannar i den här profilen; allt annat får synkas.
-  const { apiKey = "", backupApiKey = "", ...syncable } = settings;
+  // API-nyckeln stannar i den här profilen; allt annat får synkas.
+  const { apiKey = "", ...syncable } = settings;
   const stamp = Date.now();
-  await chrome.storage.local.set({ settings: { ...syncable, apiKey, backupApiKey }, settingsStamp: stamp });
+  await chrome.storage.local.set({ settings: { ...syncable, apiKey }, settingsStamp: stamp });
   try {
     await chrome.storage.sync.set({ settings: syncable, settingsStamp: stamp });
   } catch {

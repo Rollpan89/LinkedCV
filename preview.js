@@ -22,8 +22,7 @@ import {
   checkProposalConsistency,
   assertSafeProposalText,
   stripTags,
-  pruneHistory,
-  resolveBackupProvider
+  pruneHistory
 } from "./shared.js";
 
 const $ = id => document.getElementById(id);
@@ -116,9 +115,6 @@ function showCreateError(error, retry) {
 function modelLabel(modelId) {
   return FREE_GEMINI_MODELS.find(item => item.id === modelId)?.label || modelId;
 }
-
-/** Konfigurerad reservleverantör, eller null när bara Gemini ska användas. */
-const backupProvider = () => resolveBackupProvider(state.settings);
 
 /** Annonsens payload till Gemini — samma form i alla anrop. */
 function jobPayload() {
@@ -478,8 +474,7 @@ async function init() {
         model: settings.model,
         fallbackModels: settings.fallbackModels,
         job: jobPayload(),
-        fullCvText: state.fullCvText,
-        backup: backupProvider()
+        fullCvText: state.fullCvText
       });
       analysis = { items: fresh.jobAnalysis, modelUsed: fresh.modelUsed };
       state.statusMessage = `Kravprofilen är analyserad med ${analysis.modelUsed}.`;
@@ -514,8 +509,6 @@ function candidateModels() {
  * gräns räknas som användbar — annars skulle en okänd gräns blockera allt.
  */
 async function quotaShortfall(needed) {
-  // En konfigurerad reservleverantör kan svara även när Gemini-kvoten är slut.
-  if (backupProvider()) return null;
   const usage = await readGeminiUsage();
   const models = candidateModels().map(model => {
     const limit = dailyLimitFor(usage, state.settings, model);
@@ -555,7 +548,6 @@ async function generate(skipConfirm = false) {
       preferredModel: state.modelUsed,
       job: jobPayload(),
       fullCvText: state.fullCvText,
-      backup: backupProvider(),
       sections: state.sections,
       selectedRequirements: items,
       allowUnsupported: state.allowUnsupported,
@@ -594,8 +586,7 @@ async function reanalyze() {
       model: state.settings.model,
       fallbackModels: state.settings.fallbackModels,
       job: jobPayload(),
-      fullCvText: state.fullCvText,
-      backup: backupProvider()
+      fullCvText: state.fullCvText
     });
     state.jobAnalysis = fresh.jobAnalysis;
     state.modelUsed = fresh.modelUsed;
@@ -643,7 +634,6 @@ async function regenerateSection(tag) {
       preferredModel: state.modelUsed,
       job: jobPayload(),
       fullCvText: state.fullCvText,
-      backup: backupProvider(),
       sections: [section],
       selectedRequirements: items,
       allowUnsupported: state.allowUnsupported,
@@ -854,7 +844,7 @@ $("copyDiagnostics").addEventListener("click", async () => {
     job: { title: state.job?.title, company: state.job?.company, url: state.job?.url, location: state.job?.location, employmentType: state.job?.employmentType },
     diagnostics: state.job?.diagnostics || {},
     sections: state.sections.map(section => section.tag),
-    settings: { model: state.settings.model, fallbackModels: state.settings.fallbackModels, backupProvider: backupProvider()?.model || null },
+    settings: { model: state.settings.model, fallbackModels: state.settings.fallbackModels },
     usage: await readGeminiUsage()
   };
   try {

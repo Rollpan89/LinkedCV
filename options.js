@@ -16,21 +16,6 @@ function fallbackSelection() {
     .filter((id, index, all) => MODEL_IDS.has(id) && id !== model && all.indexOf(id) === index);
 }
 
-/**
- * Reservleverantörens adress är okänd i förväg. Behörigheten begärs därför först när
- * adressen sparas, i stället för att tillägget ber om åtkomst till alla sidor direkt.
- */
-async function requestHostPermission(value) {
-  if (!value) return true;
-  try {
-    const origin = `${new URL(value).origin}/*`;
-    if (await chrome.permissions.contains({ origins: [origin] })) return true;
-    return await chrome.permissions.request({ origins: [origin] });
-  } catch {
-    return false;
-  }
-}
-
 /** Textfält som sparas både när det ändras och när det lämnas. */
 const textField = (id, extra = {}) => ({
   elements: [id],
@@ -73,21 +58,7 @@ const FIELDS = {
     events: ["change"],
     read: () => $("allowUnsupportedSkills").checked,
     patch: value => ({ allowUnsupportedSkills: value })
-  },
-  backupBaseUrl: textField("backupBaseUrl", {
-    status: "statusBackup",
-    validate: value => {
-      if (!value) return null;
-      try {
-        return new URL(value).protocol === "https:" ? null : "Adressen måste börja med https://.";
-      } catch {
-        return "Ange en giltig https-adress, till exempel https://api.openai.com/v1.";
-      }
-    },
-    patch: value => ({ backupBaseUrl: value })
-  }),
-  backupModel: textField("backupModel", { status: "statusBackup", patch: value => ({ backupModel: value }) }),
-  backupApiKey: textField("backupApiKey", { status: "statusBackup", patch: value => ({ backupApiKey: value }) })
+  }
 };
 
 const ONBOARDING_STEPS = [
@@ -218,9 +189,6 @@ async function load() {
   const fallbacks = Array.isArray(settings.fallbackModels) ? settings.fallbackModels : DEFAULT_FALLBACK_MODELS;
   $("fallbackModel1").value = MODEL_IDS.has(fallbacks[0]) ? fallbacks[0] : "";
   $("fallbackModel2").value = MODEL_IDS.has(fallbacks[1]) ? fallbacks[1] : "";
-  $("backupBaseUrl").value = settings.backupBaseUrl || "";
-  $("backupModel").value = settings.backupModel || "";
-  $("backupApiKey").value = settings.backupApiKey || "";
   for (const spec of Object.values(FIELDS)) if (spec.status) showStatus(spec.status, "");
   showStatus("templateListStatus", "");
   renderSettings(settings);
@@ -234,11 +202,6 @@ $("save").addEventListener("click", async () => {
   for (const field of Object.keys(FIELDS)) {
     if (!(await saveField(field))) failed++;
   }
-  // Behörigheten begärs här, från ett klick, i stället för vid varje blur av fältet.
-  const allowed = await requestHostPermission($("backupBaseUrl").value.trim());
-  showStatus("statusBackup", allowed === false
-    ? "Sparat, men Chrome gav inte tillåtelse att anropa adressen. Reservleverantören kan därför inte användas."
-    : "Sparat.", allowed === false);
   $("saveStatus").textContent = failed
     ? "Rätta fälten som är markerade – de övriga inställningarna sparades."
     : "Inställningarna är sparade.";
