@@ -1,130 +1,341 @@
 <!doctype html>
 <html lang="sv">
-<head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Inställningar – CV Anpassaren</title><link rel="stylesheet" href="styles.css">
-</head>
-<body class="page">
-  <main class="settings-wrap">
-    <header class="brand"><div class="brand-mark">CV</div><div><h1>CV Anpassaren</h1><p>Inställningar</p></div></header>
-    <section class="panel">
-      <h2>Google Docs-mallar</h2>
-      <ul id="templateList" class="template-list"></ul>
-      <p id="templateListStatus" class="field-status" hidden></p>
-      <label for="templateName">Namn på mallen (valfritt)</label>
-      <input id="templateName" type="text" placeholder="Till exempel Utvecklare">
-      <label for="templateUrl">Länk till mallen</label>
-      <input id="templateUrl" type="url" placeholder="https://docs.google.com/document/d/.../edit">
-      <p id="statusTemplateUrl" class="field-status" hidden></p>
-      <div class="actions"><button id="addTemplate" class="secondary" type="button">Lägg till mallen</button></div>
-      <p class="hint">Originalmallen ändras aldrig. Varje CV skapas som en separat kopia i Google Drive. Har du flera mallar väljer du i förhandsgranskningen vilken som används.</p>
-      <div class="row"><button id="connectGoogle" class="secondary">Anslut Google-konto</button><span id="googleStatus" class="status">Inte kontrollerad</span></div>
-    </section>
-    <section class="panel" id="onboarding">
-      <h2>Kom igång</h2>
-      <p id="onboardingProgress" class="status" aria-live="polite">0 av 4 steg klara</p>
-      <ol class="onboarding-list">
-        <li id="onboardingApiKey" class="onboarding-step">Lägg in din Gemini API-nyckel</li>
-        <li id="onboardingTemplate" class="onboarding-step">Klistra in länken till din Google Docs-mall</li>
-        <li id="onboardingTemplateChecked" class="onboarding-step">Kontrollera att mallen har taggar</li>
-        <li id="onboardingGoogle" class="onboarding-step">Anslut ditt Google-konto</li>
-      </ol>
-      <h3>Så hämtar du en Gemini API-nyckel</h3>
-      <p class="hint">CV Anpassaren använder din egen nyckel till Google Gemini. Att skapa den kostar inget, och gratisnivån räcker för normal användning.</p>
-      <ol class="rules">
-        <li>Öppna <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Google AI Studio → API keys</a> och logga in med ditt Google-konto.</li>
-        <li>Klicka <strong>Create API key</strong> (Skapa API-nyckel). Finns inget projekt i listan väljer du <strong>Create project</strong> först.</li>
-        <li>Kopiera nyckeln — den börjar med <code>AIza</code>. Den visas bara i sin helhet när du skapar den, så spara den direkt.</li>
-        <li>Klistra in den i fältet <strong>Gemini API-nyckel</strong> nedan och klicka <strong>Spara inställningar</strong> längst ner.</li>
-      </ol>
-      <p class="hint">Nyckeln är personlig: den sparas bara i den här webbläsarprofilen, synkas aldrig mellan profiler och skickas bara till Googles API. Du kan återkalla den när som helst i AI Studio. Där ser du också gratisnivåns gränser per minut och dygn under <strong>Rate limits</strong> — samma siffra kan anges som daglig gräns nedan. Mer om vad som lämnar datorn står under <strong>Integritet och data</strong>.</p>
-    </section>
-    <section class="panel">
-      <h2>Gemini</h2>
-      <label for="apiKey">Gemini API-nyckel</label>
-      <input id="apiKey" type="password" autocomplete="off" placeholder="Klistra in din API-nyckel">
-      <p id="statusApiKey" class="field-status" hidden></p>
-      <p class="hint">Nyckeln lagras lokalt i Chrome. Använd en personlig nyckel och dela inte tilläggsmappen med andra.</p>
-      <label for="model">Primär modell</label>
-      <select id="model">
-        <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
-        <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option>
-        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option>
-      </select>
-      <p class="hint">Om den primära modellen är överbelastad eller når sin gratiskvot provas reservmodellerna automatiskt.</p>
-      <label for="language">Språk i den genererade CV-texten</label>
-      <select id="language">
-        <option value="sv">Svenska</option>
-        <option value="en">Engelska</option>
-      </select>
-      <p class="hint">Gränssnittet är alltid på svenska. Språkvalet styr bara texten som Gemini skriver i CV-sektionerna.</p>
-      <label for="dailyLimit">Daglig gräns för primär modell (valfritt)</label>
-      <input id="dailyLimit" type="number" min="0" step="1" placeholder="0 = okänd">
-      <p id="statusDailyLimit" class="field-status" hidden></p>
-      <p id="dailyLimitsSummary" class="hint"></p>
-      <p class="hint">Google publicerar inte gratisnivåns dygnsgräns i API:et; den visas i AI Studio → Rate limits. Ange samma siffra här så visar räknaren i förhandsgranskningen hur många anrop du har kvar. Tillägget lär sig också gränsen automatiskt när ett 429-svar namnger den.</p>
-      <label for="fallbackModel1">Reservmodell 1</label>
-      <select id="fallbackModel1">
-        <option value="">Ingen</option>
-        <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
-        <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option>
-        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option>
-      </select>
-      <label for="fallbackModel2">Reservmodell 2</label>
-      <select id="fallbackModel2">
-        <option value="">Ingen</option>
-        <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
-        <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option>
-        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option>
-      </select>
-      <p id="statusFallbackModels" class="field-status" hidden></p>
-      <p class="hint">Endast modeller med kostnadsfri standardnivå kan väljas. Tillägget avvisar andra modell-ID:n och växlar aldrig till en betald modell. Google kan ändra sina priser och kvoter över tid.</p>
-    </section>
-    <section class="panel">
-      <h2>Reservleverantör</h2>
-      <p class="hint">Om ingen av Gemini-modellerna kan svara kan tillägget i stället använda en OpenAI-kompatibel tjänst som du anger själv. Lämna fälten tomma för att bara använda Gemini.</p>
-      <label for="backupBaseUrl">Adress till API:et</label>
-      <input id="backupBaseUrl" type="url" placeholder="https://api.openai.com/v1">
-      <label for="backupModel">Modellnamn</label>
-      <input id="backupModel" type="text" placeholder="Till exempel gpt-4o-mini">
-      <label for="backupApiKey">API-nyckel hos reservleverantören</label>
-      <input id="backupApiKey" type="password" autocomplete="off" placeholder="Klistra in nyckeln">
-      <p id="statusBackup" class="field-status" hidden></p>
-      <p class="hint">Samma annonstext och CV-text skickas då till den adressen. Nyckeln sparas bara i den här webbläsarprofilen och synkas aldrig. Chrome frågar efter åtkomst till adressen när du sparar den.</p>
-    </section>
-    <section class="panel">
-      <h2>Kontrollera mallen</h2>
-      <p class="hint">Läser CV-mallen och visar vilka taggade sektioner som hittas, samt vilka rubriker som ser ut som sektioner men saknar taggar. Originalmallen ändras aldrig.</p>
-      <div class="actions"><button id="checkTemplate" class="secondary" type="button">Kontrollera mallen</button></div>
-      <div id="templateCheck" class="template-check" hidden></div>
-    </section>
-    <section class="panel">
-      <h2>Kompetenser</h2>
-      <label class="checkbox-row" for="allowUnsupportedSkills"><input id="allowUnsupportedSkills" type="checkbox"><span>Tillåt ej styrkta kompetenser</span></label>
-      <p class="hint"><strong>Av:</strong> Endast kompetenser med stöd i CV:t (belagda eller delvis belagda) kan väljas. Kompetenser som saknar belägg kan inte föras in.<br><strong>På:</strong> Även kompetenser utan belägg i CV:t kan väljas. De markeras tydligt i kompetensväljaren och du ansvarar själv för att granska och godkänna dem. Inget läggs till automatiskt.</p>
-    </section>
-    <section class="panel">
-      <h2>Integritet och data</h2>
-      <p class="hint"><strong>Det som lämnar datorn:</strong> annonsens text och CV-texten skickas till Google Gemini för analys och textförslag. Mallen och kopian hanteras via Google Docs- och Drive-API:erna. Tillägget har ingen egen server och skickar inget någon annanstans. Om du har angett en reservleverantör skickas samma text dit när Gemini inte kan svara.</p>
-      <p class="hint"><strong>Gratisnivån hos Gemini:</strong> Googles villkor för gratisnivån innebär att innehåll kan användas för att förbättra deras produkter. Vill du undvika det är en betald nyckel hos Google det enda alternativet — tillägget använder aldrig betalmodeller av sig själv.</p>
-      <p class="hint"><strong>Det som sparas lokalt:</strong> API-nyckeln (endast i den här webbläsarprofilen), inställningar, cachade kravanalyser, anropsräknaren och historiken över skapade dokument. Inställningarna synkas mellan dina Chrome-profiler, men aldrig API-nyckeln.</p>
-      <p id="historySummary" class="hint"></p>
-      <div class="data-actions"><button id="clearAnalyses" class="secondary" type="button">Rensa kravanalyser</button><button id="clearUsage" class="secondary" type="button">Nollställ anropsräknaren</button><button id="clearHistory" class="secondary" type="button">Rensa historiken</button></div>
-      <p id="dataStatus" class="status" aria-live="polite"></p>
-    </section>
-    <section class="panel">
-      <h2>Regler för CV-anpassning</h2>
-      <ul class="rules">
-        <li>Endast text mellan matchande [TAG] och [/TAG] får ändras.</li>
-        <li>Text som redan passar annonsen lämnas oförändrad.</li>
-        <li>AI:n får inte hitta på kompetenser eller erfarenheter.</li>
-        <li>Alla taggar tas bort i den skapade kopian, även om innehållet inte ändras.</li>
-        <li>Språket är svenska.</li>
-      </ul>
-    </section>
-    <div class="actions"><button id="save" class="primary">Spara inställningar</button><span id="saveStatus" class="status" aria-live="polite"></span></div>
-    <p class="footnote">Historiken lagras lokalt i den här Chrome-profilen. Google Docs-dokumenten lagras i ditt Google Drive.</p>
-  </main>
-  <script src="options.js" type="module"></script>
-</body>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>Inställningar – CV Anpassaren</title>
+        <link rel="stylesheet" href="styles.css" />
+    </head>
+    <body class="page">
+        <main class="settings-wrap">
+            <header class="brand">
+                <div class="brand-mark">CV</div>
+                <div>
+                    <h1>CV Anpassaren</h1>
+                    <p>Inställningar</p>
+                </div>
+            </header>
+            <section class="panel" id="onboarding">
+                <h2>Kom igång</h2>
+                <p id="onboardingProgress" class="status" aria-live="polite">
+                    0 av 4 steg klara
+                </p>
+                <ol class="onboarding-list">
+                    <li id="onboardingTemplate" class="onboarding-step">
+                        Klistra in länken till din Google Docs-mall
+                    </li>
+                    <li id="onboardingTemplateChecked" class="onboarding-step">
+                        Kontrollera att mallen har taggar
+                    </li>
+                    <li id="onboardingGoogle" class="onboarding-step">
+                        Anslut ditt Google-konto
+                    </li>
+                    <li id="onboardingApiKey" class="onboarding-step">
+                        Lägg in din Gemini API-nyckel
+                    </li>
+                </ol>
+                <h3>Så hämtar du en Gemini API-nyckel</h3>
+                <p class="hint">
+                    CV Anpassaren använder din egen nyckel till Google Gemini.
+                    Att skapa den kostar inget, och gratisnivån räcker för
+                    normal användning.
+                </p>
+                <ol class="rules">
+                    <li>
+                        Öppna
+                        <a
+                            href="https://aistudio.google.com/apikey"
+                            target="_blank"
+                            rel="noreferrer"
+                            >Google AI Studio → API keys</a
+                        >
+                        och logga in med ditt Google-konto.
+                    </li>
+                    <li>
+                        Klicka <strong>Create API key</strong> (Skapa
+                        API-nyckel). Finns inget projekt i listan väljer du
+                        <strong>Create project</strong> först.
+                    </li>
+                    <li>
+                        Kopiera nyckeln — den börjar med <code>AIza</code>. Den
+                        visas bara i sin helhet när du skapar den, så spara den
+                        direkt.
+                    </li>
+                    <li>
+                        Klistra in den i fältet
+                        <strong>Gemini API-nyckel</strong> nedan och klicka
+                        <strong>Spara inställningar</strong> längst ner.
+                    </li>
+                </ol>
+                <p class="hint">
+                    Nyckeln är personlig: den sparas bara i den här
+                    webbläsarprofilen, synkas aldrig mellan profiler och skickas
+                    bara till Googles API. Du kan återkalla den när som helst i
+                    AI Studio. Där ser du också gratisnivåns gränser per minut
+                    och dygn under <strong>Rate limits</strong> — samma siffra
+                    kan anges som daglig gräns nedan. Mer om vad som lämnar
+                    datorn står under <strong>Integritet och data</strong>.
+                </p>
+            </section>
+
+            <section class="panel">
+                <h2>Google Docs-mallar</h2>
+                <ul id="templateList" class="template-list"></ul>
+                <p id="templateListStatus" class="field-status" hidden></p>
+                <label for="templateName">Namn på mallen (valfritt)</label>
+                <input
+                    id="templateName"
+                    type="text"
+                    placeholder="Till exempel Utvecklare"
+                />
+                <label for="templateUrl">Länk till mallen</label>
+                <input
+                    id="templateUrl"
+                    type="url"
+                    placeholder="https://docs.google.com/document/d/.../edit"
+                />
+                <p id="statusTemplateUrl" class="field-status" hidden></p>
+                <div class="spacer half"></div>
+                <div class="actions">
+                    <button id="addTemplate" class="secondary" type="button">
+                        Lägg till mallen
+                    </button>
+                </div>
+                <p class="hint">
+                    Originalmallen ändras aldrig. Varje CV skapas som en separat
+                    kopia i Google Drive. Har du flera mallar väljer du i
+                    förhandsgranskningen vilken som används.
+                </p>
+                <div class="spacer"></div>
+                <h2>Kontrollera mallen</h2>
+                <p class="hint">
+                    Läser CV-mallen och visar vilka taggade sektioner som
+                    hittas, samt vilka rubriker som ser ut som sektioner men
+                    saknar taggar. Originalmallen ändras aldrig.
+                </p>
+                <div class="spacer half"></div>
+                <div class="actions">
+                    <button id="checkTemplate" class="secondary" type="button">
+                        Kontrollera mallen
+                    </button>
+                </div>
+                <div id="templateCheck" class="template-check" hidden></div>
+            </section>
+
+            <section class="panel">
+                <h2>Verifiera ditt Google-konto</h2>
+                <div class="row">
+                    <button id="connectGoogle" class="secondary">
+                        Anslut Google-konto</button
+                    ><span id="googleStatus" class="status"
+                        >Inte kontrollerad</span
+                    >
+                </div>
+            </section>
+
+            <section class="panel">
+                <h2>Gemini</h2>
+                <label for="apiKey">Gemini API-nyckel</label>
+                <input
+                    id="apiKey"
+                    type="password"
+                    autocomplete="off"
+                    placeholder="Klistra in din API-nyckel"
+                />
+                <p id="statusApiKey" class="field-status" hidden></p>
+                <p class="hint">
+                    Nyckeln lagras lokalt i Chrome. Använd en personlig nyckel
+                    och dela inte tilläggsmappen med andra.
+                </p>
+                <label for="model">Primär modell</label>
+                <select id="model">
+                    <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+                    <option value="gemini-3.5-flash-lite">
+                        Gemini 3.5 Flash-Lite
+                    </option>
+                    <option value="gemini-3.1-flash-lite">
+                        Gemini 3.1 Flash-Lite
+                    </option>
+                </select>
+                <p class="hint">
+                    Om den primära modellen är överbelastad eller når sin
+                    gratiskvot provas reservmodellerna automatiskt.
+                </p>
+                <label for="language">Språk i den genererade CV-texten</label>
+                <select id="language">
+                    <option value="sv">Svenska</option>
+                    <option value="en">Engelska</option>
+                </select>
+                <p class="hint">
+                    Gränssnittet är alltid på svenska. Språkvalet styr bara
+                    texten som Gemini skriver i CV-sektionerna.
+                </p>
+                <label for="dailyLimit"
+                    >Daglig gräns för primär modell (valfritt)</label
+                >
+                <input
+                    id="dailyLimit"
+                    type="number"
+                    min="0"
+                    step="1"
+                    placeholder="0 = okänd"
+                />
+                <p id="statusDailyLimit" class="field-status" hidden></p>
+                <p id="dailyLimitsSummary" class="hint"></p>
+                <p class="hint">
+                    Google publicerar inte gratisnivåns dygnsgräns i API:et; den
+                    visas i AI Studio → Rate limits. Ange samma siffra här så
+                    visar räknaren i förhandsgranskningen hur många anrop du har
+                    kvar. Tillägget lär sig också gränsen automatiskt när ett
+                    429-svar namnger den.
+                </p>
+                <label for="fallbackModel1">Reservmodell 1</label>
+                <select id="fallbackModel1">
+                    <option value="">Ingen</option>
+                    <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+                    <option value="gemini-3.5-flash-lite">
+                        Gemini 3.5 Flash-Lite
+                    </option>
+                    <option value="gemini-3.1-flash-lite">
+                        Gemini 3.1 Flash-Lite
+                    </option>
+                </select>
+                <label for="fallbackModel2">Reservmodell 2</label>
+                <select id="fallbackModel2">
+                    <option value="">Ingen</option>
+                    <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+                    <option value="gemini-3.5-flash-lite">
+                        Gemini 3.5 Flash-Lite
+                    </option>
+                    <option value="gemini-3.1-flash-lite">
+                        Gemini 3.1 Flash-Lite
+                    </option>
+                </select>
+                <p id="statusFallbackModels" class="field-status" hidden></p>
+                <p class="hint">
+                    Endast modeller med kostnadsfri standardnivå kan väljas.
+                    Tillägget avvisar andra modell-ID:n och växlar aldrig till
+                    en betald modell. Google kan ändra sina priser och kvoter
+                    över tid.
+                </p>
+            </section>
+
+            <section class="panel">
+                <h2>Reservleverantör</h2>
+                <p class="hint">
+                    Om ingen av Gemini-modellerna kan svara kan tillägget i
+                    stället använda en OpenAI-kompatibel tjänst som du anger
+                    själv. Lämna fälten tomma för att bara använda Gemini.
+                </p>
+                <label for="backupBaseUrl">Adress till API:et</label>
+                <input
+                    id="backupBaseUrl"
+                    type="url"
+                    placeholder="https://api.openai.com/v1"
+                />
+                <label for="backupModel">Modellnamn</label>
+                <input
+                    id="backupModel"
+                    type="text"
+                    placeholder="Till exempel gpt-4o-mini"
+                />
+                <label for="backupApiKey"
+                    >API-nyckel hos reservleverantören</label
+                >
+                <input
+                    id="backupApiKey"
+                    type="password"
+                    autocomplete="off"
+                    placeholder="Klistra in nyckeln"
+                />
+                <p id="statusBackup" class="field-status" hidden></p>
+                <p class="hint">
+                    Samma annonstext och CV-text skickas då till den adressen.
+                    Nyckeln sparas bara i den här webbläsarprofilen och synkas
+                    aldrig. Chrome frågar efter åtkomst till adressen när du
+                    sparar den.
+                </p>
+            </section>
+
+            <section class="panel">
+                <h2>Kompetenser</h2>
+                <label class="checkbox-row" for="allowUnsupportedSkills"
+                    ><input id="allowUnsupportedSkills" type="checkbox" /><span
+                        >Tillåt ej styrkta kompetenser</span
+                    ></label
+                >
+                <p class="hint">
+                    <strong>Av:</strong> Endast kompetenser med stöd i CV:t
+                    (belagda eller delvis belagda) kan väljas. Kompetenser som
+                    saknar belägg kan inte föras in.<br /><strong>På:</strong>
+                    Även kompetenser utan belägg i CV:t kan väljas. De markeras
+                    tydligt i kompetensväljaren och du ansvarar själv för att
+                    granska och godkänna dem. Inget läggs till automatiskt.
+                </p>
+            </section>
+            <section class="panel">
+                <h2>Integritet och data</h2>
+                <p class="hint">
+                    <strong>Det som lämnar datorn:</strong> annonsens text och
+                    CV-texten skickas till Google Gemini för analys och
+                    textförslag. Mallen och kopian hanteras via Google Docs- och
+                    Drive-API:erna. Tillägget har ingen egen server och skickar
+                    inget någon annanstans. Om du har angett en reservleverantör
+                    skickas samma text dit när Gemini inte kan svara.
+                </p>
+                <p class="hint">
+                    <strong>Gratisnivån hos Gemini:</strong> Googles villkor för
+                    gratisnivån innebär att innehåll kan användas för att
+                    förbättra deras produkter. Vill du undvika det är en betald
+                    nyckel hos Google det enda alternativet — tillägget använder
+                    aldrig betalmodeller av sig själv.
+                </p>
+                <p class="hint">
+                    <strong>Det som sparas lokalt:</strong> API-nyckeln (endast
+                    i den här webbläsarprofilen), inställningar, cachade
+                    kravanalyser, anropsräknaren och historiken över skapade
+                    dokument. Inställningarna synkas mellan dina
+                    Chrome-profiler, men aldrig API-nyckeln.
+                </p>
+                <p id="historySummary" class="hint"></p>
+                <div class="data-actions">
+                    <button id="clearAnalyses" class="secondary" type="button">
+                        Rensa kravanalyser</button
+                    ><button id="clearUsage" class="secondary" type="button">
+                        Nollställ anropsräknaren</button
+                    ><button id="clearHistory" class="secondary" type="button">
+                        Rensa historiken
+                    </button>
+                </div>
+                <p id="dataStatus" class="status" aria-live="polite"></p>
+            </section>
+            <section class="panel">
+                <h2>Regler för CV-anpassning</h2>
+                <ul class="rules">
+                    <li>
+                        Endast text mellan matchande [TAG] och [/TAG] får
+                        ändras.
+                    </li>
+                    <li>Text som redan passar annonsen lämnas oförändrad.</li>
+                    <li>
+                        AI:n får inte hitta på kompetenser eller erfarenheter.
+                    </li>
+                    <li>
+                        Alla taggar tas bort i den skapade kopian, även om
+                        innehållet inte ändras.
+                    </li>
+                    <li>Språket är svenska.</li>
+                </ul>
+            </section>
+            <div class="actions">
+                <button id="save" class="primary">Spara inställningar</button
+                ><span id="saveStatus" class="status" aria-live="polite"></span>
+            </div>
+            <p class="footnote">
+                Historiken lagras lokalt i den här Chrome-profilen. Google
+                Docs-dokumenten lagras i ditt Google Drive.
+            </p>
+        </main>
+        <script src="options.js" type="module"></script>
+    </body>
 </html>
