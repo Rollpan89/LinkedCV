@@ -1,15 +1,15 @@
 {
   "manifest_version": 3,
   "minimum_chrome_version": "105",
-  "name": "CV Anpassaren",
-  "version": "0.4.0",
-  "description": "Extrahera och analysera jobbkrav från LinkedIn och anpassa en kopia av ditt Google Docs-CV.",
+  "default_locale": "en",
+  "name": "__MSG_name__",
+  "version": "1.0.0",
+  "description": "__MSG_description__",
   "key": "naeobklabmjjljdknpbjhjkoaagdihog",
   "permissions": [
     "contextMenus",
     "storage",
     "identity",
-    "tabs",
     "scripting"
   ],
   "host_permissions": [
@@ -35,7 +35,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "CV Anpassaren"
+    "default_title": "__MSG_name__"
   },
   "options_page": "options.html",
   "oauth2": {

@@ -1,0 +1,10 @@
+{
+  "name": {
+    "message": "CV Adapter",
+    "description": "Extension name shown in Chrome and the store listing."
+  },
+  "description": {
+    "message": "Extract and analyse job requirements from LinkedIn and adapt a copy of your Google Docs CV.",
+    "description": "Short description shown in Chrome and the store listing."
+  }
+}

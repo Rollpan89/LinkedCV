@@ -1,9 +1,9 @@
 {
-  "name": "cv-anpassaren",
-  "version": "0.3.0",
+  "name": "cv-adapter",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Chrome-tillägg som anpassar en Google Docs-CV-mall efter en LinkedIn-annons.",
+  "description": "Chrome extension that adapts a Google Docs CV template to a LinkedIn job ad.",
   "scripts": {
     "test": "node --test tests/*.test.mjs"
   },

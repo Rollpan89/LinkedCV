@@ -1,4 +1,5 @@
-import { DEFAULT_LANGUAGE, DEFAULT_MODEL, DEFAULT_FALLBACK_MODELS, FREE_GEMINI_MODELS, HISTORY_LIMIT, HISTORY_MAX_AGE_DAYS, LANGUAGES, clearAnalysisCache, clearUsageCounter, escapeHtml, extractDocId, getDoc, pruneHistory, readSettings, resolveTemplates, summarizeTemplate, withDailyLimit, writeSettings } from "./shared.js";
+import { DEFAULT_LANGUAGE, DEFAULT_MODEL, DEFAULT_FALLBACK_MODELS, FREE_GEMINI_MODELS, HISTORY_LIMIT, HISTORY_MAX_AGE_DAYS, LANGUAGES, clearAnalysisCache, clearAllData, clearUsageCounter, escapeHtml, extractDocId, getDoc, pruneHistory, readSettings, resolveTemplates, summarizeTemplate, withDailyLimit, writeSettings } from "./shared.js";
+import { DEFAULT_UI_LANGUAGE, UI_LANGUAGES, getUiLanguage, startI18n, t } from "./i18n.js";
 
 const $ = id => document.getElementById(id);
 
@@ -43,7 +44,7 @@ const FIELDS = {
     validate: value => {
       if (!value) return null;
       const number = Number(value);
-      return Number.isInteger(number) && number >= 0 ? null : "Ange ett heltal, 0 eller högre.";
+      return Number.isInteger(number) && number >= 0 ? null : t("Enter an integer, 0 or higher.");
     },
     patch: (value, settings) => ({ dailyLimits: withDailyLimit(settings.dailyLimits, settings.model || DEFAULT_MODEL, value) })
   }),
@@ -52,6 +53,12 @@ const FIELDS = {
     events: ["change"],
     read: fallbackSelection,
     patch: value => ({ fallbackModels: value })
+  },
+  uiLanguage: {
+    elements: ["uiLanguage"],
+    events: ["change"],
+    read: () => (UI_LANGUAGES.includes($("uiLanguage").value) ? $("uiLanguage").value : DEFAULT_UI_LANGUAGE),
+    patch: value => ({ uiLanguage: value })
   },
   allowUnsupportedSkills: {
     elements: ["allowUnsupportedSkills"],
@@ -84,14 +91,14 @@ function showStatus(id, message, isError = false) {
 
 function renderTemplateList(templates) {
   $("templateList").innerHTML = templates.length
-    ? templates.map(template => `<li><span class="template-name">${escapeHtml(template.name)}</span><code class="template-url">${escapeHtml(template.url)}</code><button type="button" class="link-button" data-remove-template="${escapeHtml(template.url)}">Ta bort</button></li>`).join("")
-    : `<li class="hint">Inga mallar tillagda än.</li>`;
+    ? templates.map(template => `<li><span class="template-name">${escapeHtml(template.name)}</span><code class="template-url">${escapeHtml(template.url)}</code><button type="button" class="link-button" data-remove-template="${escapeHtml(template.url)}">${t("Remove")}</button></li>`).join("")
+    : `<li class="hint">${t("No templates added yet.")}</li>`;
 }
 
 /** Alla modellers sparade dygnsgränser, så att de syns utan att byta modell. */
 function renderDailyLimits(settings) {
-  const parts = FREE_GEMINI_MODELS.map(model => `${model.label}: ${settings.dailyLimits?.[model.id] || "okänd"}`);
-  $("dailyLimitsSummary").textContent = `Sparade dygnsgränser – ${parts.join(" · ")}`;
+  const parts = FREE_GEMINI_MODELS.map(model => `${model.label}: ${settings.dailyLimits?.[model.id] || t("unknown")}`);
+  $("dailyLimitsSummary").textContent = t("Saved daily limits – {list}", { list: parts.join(" · ") });
 }
 
 /** Checklistan räknas fram från sparade inställningar, aldrig från osparade fältvärden. */
@@ -103,8 +110,8 @@ function renderOnboarding(settings) {
     $(step.id).classList.toggle("done", complete);
   }
   $("onboardingProgress").textContent = completed === ONBOARDING_STEPS.length
-    ? "Alla steg klara – öppna en LinkedIn-annons och välj Anpassa till CV i högerklicksmenyn."
-    : `${completed} av ${ONBOARDING_STEPS.length} steg klara`;
+    ? t("All steps done – open a job ad on LinkedIn and choose Adapt to CV from the right-click menu.")
+    : t("{done} of {total} steps done", { done: completed, total: ONBOARDING_STEPS.length });
 }
 
 function renderSettings(settings) {
@@ -125,8 +132,8 @@ async function loadHistory() {
   const removed = (Array.isArray(stored) ? stored.length : 0) - kept.length;
   if (removed > 0) await chrome.storage.local.set({ history: kept });
   $("historySummary").textContent = kept.length
-    ? `${kept.length} CV i historiken. Poster äldre än ${HISTORY_MAX_AGE_DAYS} dagar och allt utöver ${HISTORY_LIMIT} tas bort automatiskt.${removed > 0 ? ` ${removed} gamla poster gallrades nu.` : ""}`
-    : "Historiken är tom. När du skapar ett CV sparas det här, och poster gallras automatiskt efter 180 dagar.";
+    ? `${t("{count} CVs in the history. Entries older than {days} days and anything beyond {limit} are removed automatically.", { count: kept.length, days: HISTORY_MAX_AGE_DAYS, limit: HISTORY_LIMIT })}${removed > 0 ? ` ${t("{count} old entries were removed now.", { count: removed })}` : ""}`
+    : t("The history is empty. When you create a CV it is saved here, and entries are removed automatically after 180 days.");
 }
 
 /** Sparar en ändring och ritar om allt som beror av inställningarna. */
@@ -147,19 +154,19 @@ async function saveField(field) {
   }
   try {
     await saveSettings(settings => spec.patch(value, settings));
-    if (spec.status) showStatus(spec.status, "Sparat.");
+    if (spec.status) showStatus(spec.status, t("Saved."));
     return true;
   } catch (failure) {
-    showStatus(spec.status, failure?.message || "Kunde inte spara fältet.", true);
+    showStatus(spec.status, failure?.message || t("Could not save the field."), true);
     return false;
   }
 }
 
 /** Ett draft i mallfälten kontrolleras innan det läggs till i listan. */
 function templateError({ url }, settings) {
-  if (!url) return "Klistra in länken till mallen först.";
-  if (!DOCS_URL.test(url)) return "Ange en giltig Google Docs-länk (https://docs.google.com/document/d/…).";
-  if (resolveTemplates(settings).some(template => template.url === url)) return "Mallen finns redan i listan.";
+  if (!url) return t("Paste the template link first.");
+  if (!DOCS_URL.test(url)) return t("Enter a valid Google Docs link (https://docs.google.com/document/d/…).");
+  if (resolveTemplates(settings).some(template => template.url === url)) return t("The template is already in the list.");
   return null;
 }
 
@@ -176,12 +183,14 @@ async function addTemplate() {
   await saveSettings(() => ({ templates, templateUrl: "" }));
   $("templateName").value = "";
   $("templateUrl").value = "";
-  showStatus("statusTemplateUrl", "Mallen är tillagd.");
+  showStatus("statusTemplateUrl", t("The template was added."));
 }
 
 async function load() {
   const settings = await readSettings();
+  startI18n(settings);
   $("apiKey").value = settings.apiKey || "";
+  $("uiLanguage").value = UI_LANGUAGES.includes(settings.uiLanguage) ? settings.uiLanguage : DEFAULT_UI_LANGUAGE;
   $("allowUnsupportedSkills").checked = Boolean(settings.allowUnsupportedSkills);
   $("language").value = LANGUAGES.includes(settings.language) ? settings.language : DEFAULT_LANGUAGE;
   $("model").value = MODEL_IDS.has(settings.model) ? settings.model : DEFAULT_MODEL;
@@ -203,8 +212,9 @@ $("save").addEventListener("click", async () => {
     if (!(await saveField(field))) failed++;
   }
   $("saveStatus").textContent = failed
-    ? "Rätta fälten som är markerade – de övriga inställningarna sparades."
-    : "Inställningarna är sparade.";
+    ? t("Fix the highlighted fields – the other settings were saved.")
+    : t("Settings saved.");
+  if (getUiLanguage() !== $("uiLanguage").value) location.reload();
 });
 
 $("addTemplate").addEventListener("click", addTemplate);
@@ -217,27 +227,27 @@ $("templateList").addEventListener("click", async event => {
   const templates = resolveTemplates(existing).filter(template => template.url !== url);
   const verified = (Array.isArray(existing.verifiedTemplateUrls) ? existing.verifiedTemplateUrls : []).filter(item => item !== url);
   await saveSettings(() => ({ templates, templateUrl: "", verifiedTemplateUrls: verified }));
-  showStatus("templateListStatus", "Mallen är borttagen.");
+  showStatus("templateListStatus", t("The template was removed."));
 });
 
 $("checkTemplate").addEventListener("click", async () => {
   const output = $("templateCheck");
   output.hidden = false;
-  output.textContent = "Hämtar mallen…";
+  output.textContent = t("Fetching the template…");
   try {
     const checkedUrl = $("templateUrl").value.trim() || resolveTemplates(await readSettings())[0]?.url || "";
     const doc = await getDoc(extractDocId(checkedUrl));
     const summary = summarizeTemplate(doc);
     const parts = [];
     if (summary.errors.length) {
-      parts.push(`<p class="hint"><strong>Mallen kan inte användas:</strong><br>${summary.errors.map(escapeHtml).join("<br>")}</p>`);
+      parts.push(`<p class="hint"><strong>${t("The template cannot be used:")}</strong><br>${summary.errors.map(escapeHtml).join("<br>")}</p>`);
     }
     parts.push(summary.sections.length
-      ? `<p><strong>${summary.sections.length} taggade sektioner hittades:</strong> ${summary.sections.map(section => `<code>[${escapeHtml(section.tag)}]</code>`).join(" ")}</p>`
-      : "<p><strong>Inga taggade sektioner hittades.</strong> Lägg till taggar enligt listan nedan.</p>");
+      ? `<p><strong>${t("{count} tagged sections found:", { count: summary.sections.length })}</strong> ${summary.sections.map(section => `<code>[${escapeHtml(section.tag)}]</code>`).join(" ")}</p>`
+      : `<p><strong>${t("No tagged sections were found.")}</strong> ${t("Add tags according to the list below.")}</p>`);
     if (summary.missingHeadings.length) {
-      parts.push(`<p class="hint">Rubriker som ser ut som sektioner men saknar taggar:</p><ul class="rules">${summary.missingHeadings.map(heading => `<li>${escapeHtml(heading.label)}: lägg <code>[${heading.tag}]</code> före texten och <code>[/${heading.tag}]</code> efter.</li>`).join("")}</ul>`);
-      parts.push(`<p class="hint">Taggar får bara finnas i mallen. All text utanför taggarna lämnas orörd i den färdiga kopian.</p>`);
+      parts.push(`<p class="hint">${t("Headings that look like sections but have no tags:")}</p><ul class="rules">${summary.missingHeadings.map(heading => `<li>${escapeHtml(t(heading.label))}: ${t("put")} <code>[${heading.tag}]</code> ${t("before the text and")} <code>[/${heading.tag}]</code> ${t("after it.")}</li>`).join("")}</ul>`);
+      parts.push(`<p class="hint">${t("Tags may only exist in the template. All text outside the tags is left untouched in the finished copy.")}</p>`);
     }
     output.innerHTML = parts.join("");
     // En lyckad kontroll kvitterar mallen. Länken har precis använts mot Docs-API:t
@@ -254,16 +264,23 @@ $("checkTemplate").addEventListener("click", async () => {
 
 $("clearAnalyses").addEventListener("click", async () => {
   await clearAnalysisCache();
-  $("dataStatus").textContent = "De cachade kravanalyserna är rensade.";
+  $("dataStatus").textContent = t("The cached requirement analyses were cleared.");
 });
 $("clearUsage").addEventListener("click", async () => {
   await clearUsageCounter();
-  $("dataStatus").textContent = "Anropsräknaren är nollställd.";
+  $("dataStatus").textContent = t("The call counter was reset.");
 });
 $("clearHistory").addEventListener("click", async () => {
   await chrome.storage.local.set({ history: [] });
   await loadHistory();
-  $("dataStatus").textContent = "Historiken är rensad.";
+  $("dataStatus").textContent = t("The history was cleared.");
+});
+$("clearAll").addEventListener("click", async () => {
+  if (!confirm(t("Delete the API key, all analyses, the counter, the history and the Google connection?"))) return;
+  await clearAllData();
+  $("apiKey").value = "";
+  await load();
+  $("dataStatus").textContent = t("All local data was deleted.");
 });
 
 $("model").addEventListener("change", async () => {
@@ -273,11 +290,11 @@ $("model").addEventListener("change", async () => {
 $("connectGoogle").addEventListener("click", async () => {
   try {
     const result = await chrome.identity.getAuthToken({ interactive: true });
-    if (!result?.token) throw new Error("Google returnerade ingen åtkomsttoken.");
-    $("googleStatus").textContent = "Google-kontot är anslutet.";
+    if (!result?.token) throw new Error(t("Google returned no access token."));
+    $("googleStatus").textContent = t("The Google account is connected.");
     await saveSettings(() => ({ googleConnectedAt: new Date().toISOString() }));
   } catch (error) {
-    $("googleStatus").textContent = error.message || "Google-inloggningen misslyckades.";
+    $("googleStatus").textContent = error.message || t("Google sign-in failed.");
   }
 });
 

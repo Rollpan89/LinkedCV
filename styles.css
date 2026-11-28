@@ -530,6 +530,7 @@ button:disabled {
     color: var(--muted);
     line-height: 1.45;
     overflow-wrap: anywhere;
+    font-weight: 400;
 }
 .requirement-blocked {
     font-size: 12px;
@@ -661,6 +662,9 @@ button:disabled {
 }
 
 /* Egna krav i kompetensväljaren */
+.requirement-add {
+    margin-bottom: 2em;
+}
 .requirement-add input {
     flex: 1;
     min-width: 180px;
@@ -787,3 +791,6 @@ button:disabled {
 .spacer.double {
     height: 2em;
 }
+
+
+#templateSelect {width: 50%;}

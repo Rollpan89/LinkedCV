@@ -150,8 +150,8 @@
       return { el, hrefId, text: visibleText(el) };
     }).filter(x => x.hrefId === id && x.text.length >= 4 && x.text.length <= 120 && !NON_JOB_HEADINGS.test(x.text));
     const uniqueTexts = [...new Set(links.map(x => x.text))];
-    if (uniqueTexts.length === 1) return { value: uniqueTexts[0], source: `annonslänk med exakt jobb-ID ${id}`, element: links.find(x => x.text === uniqueTexts[0]).el, jobId: id };
-    if (uniqueTexts.length > 1) return { value:'', source:'flera möjliga titlar för samma jobb-ID', ambiguous:true, jobId:id };
+    if (uniqueTexts.length === 1) return { value: uniqueTexts[0], source: `ad link with exact job ID ${id}`, element: links.find(x => x.text === uniqueTexts[0]).el, jobId: id };
+    if (uniqueTexts.length > 1) return { value:'', source:'several possible titles for the same job ID', ambiguous:true, jobId:id };
     return null;
   }
   function findTitleInActiveHeader(roots = []) {
@@ -164,7 +164,7 @@
     const normalized = unique(candidates).filter(usable).map(el => ({el,text:visibleText(el)}))
       .filter(x => x.text.length >= 4 && x.text.length <= 120 && !NON_JOB_HEADINGS.test(x.text));
     const uniqueTexts = [...new Set(normalized.map(x => x.text))];
-    if (uniqueTexts.length === 1) return {value:uniqueTexts[0], source:'LinkedIn-jobbhuvudets titel-element', element:normalized.find(x=>x.text===uniqueTexts[0]).el, jobId:getCurrentJobId()};
+    if (uniqueTexts.length === 1) return {value:uniqueTexts[0], source:'LinkedIn job header title element', element:normalized.find(x=>x.text===uniqueTexts[0]).el, jobId:getCurrentJobId()};
 
     // LinkedIn may render the title as a bare text node (not a heading or
     // element). Resolve it relative to the active employer link, rather than
@@ -200,17 +200,17 @@
           const textNodeValues = [...new Set(textNodes.map(x=>x.text))];
           if (textNodeValues.length === 1) {
             const match = textNodes.find(x=>x.text===textNodeValues[0]);
-            return {value:match.text, source:'titeltextnod i aktivt jobbhuvud efter företagslänken', element:match.el, jobId:getCurrentJobId()};
+            return {value:match.text, source:'title text node in the active job header after the company link', element:match.el, jobId:getCurrentJobId()};
           }
           const texts = [...new Set(nearby.map(x=>x.text))];
           if (texts.length === 1) {
             const match = nearby.filter(x=>x.text===texts[0]).sort((a,b)=>depthOf(b.el)-depthOf(a.el))[0];
-            return {value:match.text, source:'titeltext i aktivt jobbhuvud efter företagslänken', element:match.el, jobId:getCurrentJobId()};
+            return {value:match.text, source:'title text in the active job header after the company link', element:match.el, jobId:getCurrentJobId()};
           }
         }
       }
     }
-    if (uniqueTexts.length > 1) return {value:'', source:'flera titlar i aktivt jobbhuvud', ambiguous:true, jobId:getCurrentJobId()};
+    if (uniqueTexts.length > 1) return {value:'', source:'several titles in the active job header', ambiguous:true, jobId:getCurrentJobId()};
     return null;
   }
   function findJobTitle(posting, roots) {
@@ -223,7 +223,7 @@
     for (const raw of metaTitles) {
       const candidate = parseMetaJobTitle(raw);
       if (candidate && candidate.length >= 5 && candidate.length <= 100 && !NON_JOB_HEADINGS.test(candidate)) {
-        if (JOB_TITLE_WORDS.test(candidate) || candidate.split(' ').length <= 8) return {value:candidate, source:'Open Graph / dokumenttitel'};
+        if (JOB_TITLE_WORDS.test(candidate) || candidate.split(' ').length <= 8) return {value:candidate, source:'Open Graph / document title'};
       }
     }
     const scopes = activeJobScopes(roots);
@@ -231,8 +231,8 @@
     const root = scopes[0] || roots.slice().sort((a,b) => visibleText(a).length-visibleText(b).length)[0];
     const ranked = headings.map((h,i) => ({...h, score:scoreTitle(h,root,i,headings)})).sort((a,b)=>b.score-a.score);
     const best = ranked[0];
-    if (best && best.score >= 12) return {value:best.text, source:'semantisk rubrik i aktiv annons', element:best.el};
-    return {value:'', source:'saknas eller osäker'};
+    if (best && best.score >= 12) return {value:best.text, source:'semantic heading in the active ad', element:best.el};
+    return {value:'', source:'missing or uncertain'};
   }
   function candidateDescriptionNodes(roots) {
     const nodes = [];
@@ -295,7 +295,7 @@
         .replace(/(?:…|\.{2,})\s*(?:mer|more)\s*$/i, ''));
       if (scopedText.length >= 180) {
         const mayBeIncomplete = [...scopedSection.querySelectorAll('button,[role="button"]')].some(button => isVisible(button) && /(?:show more|see more|visa mer|visa fler|read more|läs mer|…\s*mer)/i.test(normalize(`${visibleText(button)} ${button.getAttribute('aria-label') || ''}`)));
-        return {value:scopedText, source:'LinkedIn-sektionen "Om jobbet"', score:30, candidates:0, scoped:true, mayBeIncomplete};
+        return {value:scopedText, source:'the LinkedIn "About the job" section', score:30, candidates:0, scoped:true, mayBeIncomplete};
       }
     }
     const candidates = candidateDescriptionNodes(roots).map(el => ({el,value:visibleText(el),score:scoreDescription(el,roots)}))
@@ -303,10 +303,10 @@
     const best = candidates[0];
     const structured = htmlText(posting?.description || '');
     if (structured.length >= 180 && (!best || structured.length >= best.value.length * 0.78)) return {value:structured, source:'JSON-LD JobPosting.description', score:20, candidates:candidates.length, scoped:false};
-    if (best) return {value:best.value, source:'semantisk DOM-rangordning', score:Math.round(best.score*10)/10, candidates:candidates.length, scoped:false};
+    if (best) return {value:best.value, source:'semantic DOM ranking', score:Math.round(best.score*10)/10, candidates:candidates.length, scoped:false};
     const metaDescription = normalize(metaContent('meta[property="og:description"]') || metaContent('meta[name="description"]') || '');
-    if (metaDescription.length > structured.length && metaDescription.length >= 60) return {value:metaDescription, source:'meta-beskrivning', score:6, candidates:candidates.length, scoped:false, mayBeIncomplete:true};
-    return {value:structured, source:structured?'JSON-LD JobPosting.description':'saknas', score:structured.length>=180?20:0, candidates:candidates.length, scoped:false};
+    if (metaDescription.length > structured.length && metaDescription.length >= 60) return {value:metaDescription, source:'meta description', score:6, candidates:candidates.length, scoped:false, mayBeIncomplete:true};
+    return {value:structured, source:structured?'JSON-LD JobPosting.description':'missing', score:structured.length>=180?20:0, candidates:candidates.length, scoped:false};
   }
   function nearbyMetadata(title, posting, titleElement = null) {
     const result = {company:orgName(posting), location:postingLocation(posting), employmentType:normalize((Array.isArray(posting?.employmentType)?posting.employmentType:[posting?.employmentType]).filter(Boolean).join(', '))};
@@ -384,17 +384,17 @@
     const meta = nearbyMetadata(titleInfo.value, posting, titleInfo.element || null);
     const desc = extractDescription(posting, roots, descriptionScope);
     const description = normalize(desc.value);
-    const metadata = [titleInfo.value && `Tjänst: ${titleInfo.value}`, meta.company && `Företag: ${meta.company}`, meta.location && `Plats: ${meta.location}`, meta.employmentType && `Anställningstyp: ${meta.employmentType}`].filter(Boolean).join('\n');
+    const metadata = [titleInfo.value && `Title: ${titleInfo.value}`, meta.company && `Company: ${meta.company}`, meta.location && `Location: ${meta.location}`, meta.employmentType && `Employment type: ${meta.employmentType}`].filter(Boolean).join('\n');
     const text = normalize([metadata,description].filter(Boolean).join('\n\n'));
     const confidence = Math.max(0,Math.min(100,Math.round((titleInfo.value?20:0)+(description.length>=1000?40:description.length>=400?30:description.length>=80?18:0)+(desc.score>=15?15:desc.score>=8?8:0)+(meta.company?10:0)+(posting?10:0)+(meta.location?5:0))));
     const extractionWarnings = [];
-    if (!titleInfo.value) extractionWarnings.push('Tjänstens titel kunde inte identifieras automatiskt.');
-    if (!meta.company) extractionWarnings.push('Arbetsgivaren kunde inte identifieras automatiskt.');
-    if (!meta.location) extractionWarnings.push('Plats kunde inte identifieras automatiskt.');
-    if (!descriptionScope) extractionWarnings.push('Sektionen "Om jobbet" hittades inte; annonstexten hämtades från en alternativ källa.');
-    if (description.length < 500) extractionWarnings.push('Annonstexten är ovanligt kort. Kontrollera att hela beskrivningen har expanderats.');
-    if (desc.mayBeIncomplete) extractionWarnings.push('LinkedIn visar fortfarande en Visa mer-kontroll. Beskrivningen kan vara ofullständig.');
-    if (desc.source === 'meta-beskrivning') extractionWarnings.push('Annonstexten hämtades från sidans metabeskrivning och är oftast förkortad.');
+    if (!titleInfo.value) extractionWarnings.push('title_missing');
+    if (!meta.company) extractionWarnings.push('company_missing');
+    if (!meta.location) extractionWarnings.push('location_missing');
+    if (!descriptionScope) extractionWarnings.push('description_section_missing');
+    if (description.length < 500) extractionWarnings.push('description_short');
+    if (desc.mayBeIncomplete) extractionWarnings.push('description_may_be_incomplete');
+    if (desc.source === 'meta description') extractionWarnings.push('description_from_meta');
     return {
       title:titleInfo.value, company:meta.company, location:meta.location, employmentType:meta.employmentType,
       description, text,

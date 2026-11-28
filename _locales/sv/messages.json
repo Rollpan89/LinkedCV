@@ -1,0 +1,10 @@
+{
+  "name": {
+    "message": "CV Anpassaren",
+    "description": "Tilläggets namn i Chrome och i butikslistningen."
+  },
+  "description": {
+    "message": "Extrahera och analysera jobbkrav från LinkedIn och anpassa en kopia av ditt Google Docs-CV.",
+    "description": "Kort beskrivning i Chrome och i butikslistningen."
+  }
+}

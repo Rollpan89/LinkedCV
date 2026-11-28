@@ -1,4 +1,32 @@
-# Ändringslogg
+# Changelog
+
+## 1.0.0 – Chrome Web Store release
+
+**Interface**
+
+- The interface is now in English by default, with Swedish selectable under
+  **Settings → Interface language**. The language of the generated CV text is a
+  separate setting.
+- Extension name and description are localised through `_locales/en` and
+  `_locales/sv`.
+- Extraction warnings are stored as codes and translated in the review page.
+
+**Security and privacy**
+
+- Removed the optional provider and its `https://*/*` host permission; the
+  extension now requests only the hosts it uses.
+- Removed the unused `tabs` permission.
+- Background message handler rejects messages from other senders.
+- Explicit instructions that the ad and CV text are data, never instructions.
+- Content Security Policy meta tags on all extension pages.
+- **Delete all data** removes the API key, caches, counter, history and the
+  Google connection in one step.
+- External links open with `noopener noreferrer`.
+
+**Launch**
+
+- Version 1.0.0, `LAUNCH.md` for OAuth verification and store submission, and
+  `PRIVACY.md` with the policy in English.
 
 ## 0.4.0
 

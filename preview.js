@@ -24,22 +24,32 @@ import {
   stripTags,
   pruneHistory
 } from "./shared.js";
+import { startI18n, t } from "./i18n.js";
 
 const $ = id => document.getElementById(id);
 
 const CATEGORY_LABELS = {
-  technical: "Tekniska kompetenser",
-  tools: "Verktyg och plattformar",
-  methods: "Metoder och arbetssätt",
-  personal: "Personliga kompetenser",
-  experience: "Erfarenhet",
-  education: "Utbildning",
-  responsibility: "Arbetsuppgifter och ansvar",
-  other: "Övriga krav"
+  technical: "Technical skills",
+  tools: "Tools and platforms",
+  methods: "Methods and ways of working",
+  personal: "Personal skills",
+  experience: "Experience",
+  education: "Education",
+  responsibility: "Tasks and responsibilities",
+  other: "Other requirements"
 };
-const STATUS_LABELS = { supported: "Belagt i CV:t", transferable: "Delvis belagt", not_found: "Saknar belägg" };
+const STATUS_LABELS = { supported: "Supported by the CV", transferable: "Partially supported", not_found: "No evidence" };
 const STATUS_CLASS = { supported: "ok", transferable: "partial", not_found: "warn" };
-const IMPORTANCE_LABELS = { required: "Krav", preferred: "Meriterande", stack: "Teknikstack", responsibility: "Ansvar", context: "Kontext" };
+const IMPORTANCE_LABELS = { required: "Required", preferred: "Preferred", stack: "Tech stack", responsibility: "Responsibility", context: "Context" };
+const EXTRACTION_WARNINGS = {
+  title_missing: "The job title could not be identified automatically.",
+  company_missing: "The employer could not be identified automatically.",
+  location_missing: "The location could not be identified automatically.",
+  description_section_missing: "The \"About the job\" section was not found; the ad text was taken from an alternative source.",
+  description_short: "The ad text is unusually short. Check that the full description has been expanded.",
+  description_may_be_incomplete: "LinkedIn still shows a Show more control. The description may be incomplete.",
+  description_from_meta: "The ad text came from the page's meta description and is usually shortened."
+};
 
 const state = {
   job: null,
@@ -78,7 +88,7 @@ function renderErrorBox(box, error, retry) {
   box.hidden = false;
   box.replaceChildren();
   const summary = document.createElement("p");
-  summary.textContent = typeof error === "string" ? error : error?.message || "Okänt fel";
+  summary.textContent = typeof error === "string" ? error : error?.message || t("Unknown error");
   box.append(summary);
   if (Array.isArray(error?.details) && error.details.length) {
     const list = document.createElement("ul");
@@ -93,7 +103,7 @@ function renderErrorBox(box, error, retry) {
     const again = document.createElement("button");
     again.type = "button";
     again.className = "secondary";
-    again.textContent = "Försök igen";
+    again.textContent = t("Try again");
     again.addEventListener("click", () => {
       box.hidden = true;
       retry();
@@ -130,12 +140,12 @@ function jobPayload() {
 function evidenceLines(item) {
   const evidence = locateEvidence({ cvEvidence: item.cvEvidence, sections: state.sections, cvText: state.fullCvText });
   const text = evidence.status === "section"
-    ? `CV: ${escapeHtml(item.cvEvidence)} · belägg i [${escapeHtml(evidence.sectionTag)}]`
+    ? t("CV: {evidence} · evidence in [{tag}]", { evidence: escapeHtml(item.cvEvidence), tag: escapeHtml(evidence.sectionTag) })
     : evidence.status === "cv"
-      ? `CV: ${escapeHtml(item.cvEvidence)} · belägget finns utanför de redigerbara sektionerna`
-      : `CV: ${escapeHtml(item.cvEvidence || "inget tydligt belägg")}`;
+      ? t("CV: {evidence} · the evidence is outside the editable sections", { evidence: escapeHtml(item.cvEvidence) })
+      : t("CV: {evidence}", { evidence: escapeHtml(item.cvEvidence || t("no clear evidence")) });
   const warning = evidence.status === "missing"
-    ? `<span class="requirement-unverified">Belägget finns inte ordagrant i CV:t – kontrollera kravet själv innan du väljer det.</span>`
+    ? `<span class="requirement-unverified">${t("The evidence is not found verbatim in the CV – check the requirement yourself before selecting it.")}</span>`
     : "";
   return { text, warning };
 }
@@ -157,18 +167,18 @@ async function refreshUsageCounter() {
   const strong = document.createElement("strong");
   strong.textContent = String(total);
   const label = document.createElement("span");
-  label.textContent = "anrop idag";
+  label.textContent = t("calls today");
   element.append(strong, label);
   if (limit) {
     const line = document.createElement("p");
-    line.textContent = `${Math.max(0, limit - usedForModel)} kvar av ${limit}`;
+    line.textContent = t("{left} left of {limit}", { left: Math.max(0, limit - usedForModel), limit });
     element.append(line);
   }
   element.title = [
-    "Gemini-anrop från det här tillägget idag, per modell:",
-    ...Object.entries(usage.counts).map(([id, count]) => `${modelLabel(id)}: ${count}${usage.limits[id] ? ` av ${usage.limits[id]}` : ""}`),
+    t("Gemini calls from this extension today, per model:"),
+    ...Object.entries(usage.counts).map(([id, count]) => `${modelLabel(id)}: ${count}${usage.limits[id] ? t(" of {limit}", { limit: usage.limits[id] }) : ""}`),
     "",
-    "Google visar den exakta kvoten i AI Studio → Rate limits. Räknaren nollställs vid midnatt Pacific time."
+    t("Google shows the exact quota in AI Studio → Rate limits. The counter resets at midnight Pacific time.")
   ].join("\n");
 }
 
@@ -188,7 +198,7 @@ function renderTemplatePicker() {
 function renderExtractionWarnings() {
   const warnings = state.job?.diagnostics?.extractionWarnings || [];
   $("extractionPanel").hidden = warnings.length === 0;
-  $("extractionWarnings").innerHTML = warnings.map(item => `<li>${escapeHtml(item)}</li>`).join("");
+  $("extractionWarnings").innerHTML = warnings.map(item => `<li>${escapeHtml(t(EXTRACTION_WARNINGS[item] || item))}</li>`).join("");
 }
 
 /* ---------------- Kompetensväljare ---------------- */
@@ -203,7 +213,7 @@ function renderRequirements() {
   $("requirementsList").innerHTML = items.length
     ? [...groupBy(items, item => item.category)].map(([category, entries]) => `
       <section class="job-analysis-group">
-        <h3>${escapeHtml(CATEGORY_LABELS[category] || CATEGORY_LABELS.other)}</h3>
+        <h3>${escapeHtml(t(CATEGORY_LABELS[category] || CATEGORY_LABELS.other))}</h3>
         ${entries.map(({ item, index }) => {
           const blocked = isBlocked(item);
           const unverified = item.status === "not_found" && !blocked;
@@ -212,24 +222,26 @@ function renderRequirements() {
             <input type="checkbox" data-index="${index}" ${state.selected.has(item) ? "checked" : ""} ${blocked ? "disabled" : ""}>
             <span class="requirement-main">
               <span class="job-analysis-head"><strong>${escapeHtml(item.name)}</strong>
-                <span class="pill ${item.manual ? "partial" : STATUS_CLASS[item.status] || ""}">${escapeHtml(IMPORTANCE_LABELS[item.importance] || "Övrigt")} · ${escapeHtml(item.manual ? "Manuellt tillagt" : STATUS_LABELS[item.status] || item.status)}</span></span>
-              <span class="requirement-evidence">Annons: ${escapeHtml(item.evidence || "inget belägg")}</span>
+                <span class="pill ${item.manual ? "partial" : STATUS_CLASS[item.status] || ""}">${escapeHtml(t(IMPORTANCE_LABELS[item.importance] || "Other"))} · ${escapeHtml(item.manual ? t("Added manually") : t(STATUS_LABELS[item.status] || item.status))}</span></span>
+              <span class="requirement-evidence">${t("Ad: {evidence}", { evidence: escapeHtml(item.evidence || t("no evidence")) })}</span>
               <span class="requirement-evidence">${evidence.text}</span>
               ${evidence.warning}
-              ${item.recommendation ? `<span class="requirement-evidence">Rekommendation: ${escapeHtml(item.recommendation)}</span>` : ""}
-              ${blocked ? `<span class="requirement-blocked">Kan inte väljas: kompetensen saknar belägg i CV:t och inställningen ”Tillåt ej styrkta kompetenser” är av.</span>` : ""}
-              ${unverified ? `<span class="requirement-unverified">Ej styrkt av CV:t – inkluderas bara om du väljer den, och du ansvarar själv för granskningen.</span>` : ""}
-              <button type="button" class="link-button requirement-remove" data-remove="${index}">Ta bort</button>
+              ${item.recommendation ? `<span class="requirement-evidence">${t("Recommendation: {text}", { text: escapeHtml(item.recommendation) })}</span>` : ""}
+              ${blocked ? `<span class="requirement-blocked">${t("Cannot be selected: the skill has no evidence in the CV and the “Allow unverified skills” setting is off.")}</span>` : ""}
+              ${unverified ? `<span class="requirement-unverified">${t("Not supported by the CV – included only if you select it, and you are responsible for reviewing it.")}</span>` : ""}
+              <button type="button" class="link-button requirement-remove" data-remove="${index}">${t("Remove")}</button>
             </span>
           </label>`;
         }).join("")}
       </section>`).join("")
-    : `<p class="hint">Gemini hittade inga krav i annonsen.</p>`;
+    : `<p class="hint">${t("Gemini found no requirements in the ad.")}</p>`;
 
   const blockedCount = items.filter(isBlocked).length;
   $("unsupportedNotice").hidden = blockedCount === 0;
   $("unsupportedNotice").textContent = blockedCount
-    ? `${blockedCount} kompetens${blockedCount === 1 ? "" : "er"} saknar belägg i CV:t och kan inte väljas med nuvarande inställning. Du kan tillåta dem i Inställningar, men då ansvarar du själv för att granska texten.`
+    ? blockedCount === 1
+      ? t("1 skill has no evidence in the CV and cannot be selected with the current setting. You can allow it in Settings, but then you are responsible for reviewing the text.")
+      : t("{count} skills have no evidence in the CV and cannot be selected with the current setting. You can allow them in Settings, but then you are responsible for reviewing the text.", { count: blockedCount })
     : "";
   refreshSelectionSummary();
 }
@@ -259,16 +271,18 @@ function selectSupportedOnly() {
 
 function refreshSelectionSummary() {
   const count = selectedItems().length;
-  $("selectionCount").textContent = `${count} valda`;
+  $("selectionCount").textContent = count === 1
+    ? t("{count} selected requirement", { count })
+    : t("{count} selected requirements", { count });
   $("generate").disabled = state.busy || state.reanalyzing || !count;
   $("reanalyze").disabled = state.busy || state.reanalyzing;
-  $("generate").textContent = state.proposals ? "Generera om förslagen" : "Generera textförslag";
+  $("generate").textContent = state.proposals ? t("Generate the proposals again") : t("Generate text proposals");
   $("staleNotice").hidden = !(state.proposals && state.stale);
   // Bevarar modellinformationen från senaste anropet i stället för att nolla den.
   $("generateStatus").textContent = !state.jobAnalysis.length
-    ? "Ingen kravprofil att välja från."
+    ? t("No requirement profile to choose from.")
     : count === 0
-      ? "Välj minst en punkt för att kunna generera förslag."
+      ? t("Select at least one point to generate proposals.")
       : state.statusMessage;
 }
 
@@ -290,23 +304,23 @@ function renderProposals() {
   $("diffs").innerHTML = state.sections.map(section => {
     const proposal = state.proposals?.find(item => item.tag === section.tag);
     const warnings = [];
-    if (section.mixedFormatting) warnings.push("Sektionen har flera olika teckenformat. Ersättningstexten får formatet från sektionens första tecken.");
+    if (section.mixedFormatting) warnings.push(t("The section has several character formats. The replacement text takes the format of the section's first character."));
     const proposedLines = String(approvedText(section.tag) ?? "").split("\n").length;
     if (section.paragraphCount > 1 && proposedLines !== section.paragraphCount) {
-      warnings.push(`Sektionen har ${section.paragraphCount} stycken men förslaget har ${proposedLines} rader. Styckebrotten kan då inte bevaras — gör om förslaget med en rad per stycke om du vill behålla punktlistan.`);
+      warnings.push(t("The section has {paragraphs} paragraphs but the proposal has {lines} lines. Paragraph breaks cannot be preserved — regenerate with one line per paragraph to keep the list.", { paragraphs: section.paragraphCount, lines: proposedLines }));
     }
     return `<article class="diff-card" data-tag="${escapeHtml(section.tag)}">
       <div class="diff-title"><strong>${escapeHtml(section.tag)}</strong><span class="pill" data-change-pill>—</span></div>
       <div class="diff-grid">
-        <div><label>NUVARANDE TEXT</label><pre>${escapeHtml(section.original.trim())}</pre></div>
-        <div><label>FÖRESLAGEN TEXT (redigerbar)</label><textarea class="proposal-input" data-tag="${escapeHtml(section.tag)}" rows="${Math.min(14, Math.max(4, section.original.split("\n").length + 2))}">${escapeHtml(approvedText(section.tag))}</textarea></div>
+        <div><label>${t("Current text")}</label><pre>${escapeHtml(section.original.trim())}</pre></div>
+        <div><label>${t("Proposed text (editable)")}</label><textarea class="proposal-input" data-tag="${escapeHtml(section.tag)}" rows="${Math.min(14, Math.max(4, section.original.split("\n").length + 2))}">${escapeHtml(approvedText(section.tag))}</textarea></div>
       </div>
-      <p class="reason">${escapeHtml(proposal?.reason || "Anpassning föreslagen utifrån de valda kraven.")}</p>
+      <p class="reason">${escapeHtml(proposal?.reason || t("Adaptation proposed from the selected requirements."))}</p>
       ${warnings.length ? `<ul class="section-warning">${warnings.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
       <div class="word-diff" data-diff="${escapeHtml(section.tag)}"></div>
       <div class="diff-actions">
-        <button type="button" class="link-button" data-regenerate="${escapeHtml(section.tag)}">Generera om den här sektionen</button>
-        <button type="button" class="link-button" data-reset="${escapeHtml(section.tag)}">Återställ Gemini-förslaget</button>
+        <button type="button" class="link-button" data-regenerate="${escapeHtml(section.tag)}">${t("Regenerate this section")}</button>
+        <button type="button" class="link-button" data-reset="${escapeHtml(section.tag)}">${t("Reset the Gemini proposal")}</button>
       </div>
     </article>`;
   }).join("");
@@ -321,11 +335,11 @@ function refreshProposalSummary() {
     const card = document.querySelector(`.diff-card[data-tag="${CSS.escape(section.tag)}"]`);
     const pill = card?.querySelector("[data-change-pill]");
     if (pill) {
-      pill.textContent = isChanged ? "Ändras" : "Oförändrad";
+      pill.textContent = isChanged ? t("Changed") : t("Unchanged");
       pill.className = `pill ${isChanged ? "changed" : ""}`;
     }
   }
-  $("changeCount").textContent = `${changed} ändringar`;
+  $("changeCount").textContent = t("{count} changes", { count: changed });
   $("noChanges").hidden = changed > 0;
   $("create").disabled = !state.proposals || state.creating;
   for (const section of state.sections) updateWordDiff(section.tag);
@@ -370,7 +384,7 @@ function renderAdditionWarnings() {
     .map(item => item.term))];
   element.hidden = terms.length === 0;
   element.textContent = terms.length
-    ? `Kontrollera innan du godkänner: ${terms.join(", ")} nämns i förslaget men finns inte i CV:t eller annonsen.`
+    ? t("Check before you approve: {terms} appears in the proposal but not in the CV or the ad.", { terms: terms.join(", ") })
     : "";
 }
 
@@ -384,7 +398,7 @@ function renderConsistencyWarnings() {
   const findings = checkProposalConsistency({ proposals: finalProposals(), cvText: state.fullCvText });
   element.hidden = findings.length === 0;
   element.textContent = findings.length
-    ? `Konsekvenskontroll: ${findings.map(item => (item.tag ? `${item.message} [${item.tag}]` : item.message)).join(" ")}`
+    ? `${t("Consistency check:")} ${findings.map(item => (item.tag ? `${item.message} [${item.tag}]` : item.message)).join(" ")}`
     : "";
 }
 
@@ -414,44 +428,45 @@ async function saveCachedAnalysis(entry) {
 async function init() {
   $("loading").hidden = false;
   $("loading").setAttribute("aria-busy", "true");
-  setProgress(0, "Startar CV-anpassningen", "Kontrollerar annonsen och dina inställningar.");
+  setProgress(0, t("Starting the CV adaptation"), t("Checking the ad and your settings."));
   try {
     const [{ pendingJob }, settings] = await Promise.all([
       chrome.storage.session.get("pendingJob"),
       readSettings()
     ]);
-    if (!pendingJob) throw new Error("Ingen jobbannons hittades. Gå tillbaka till LinkedIn och välj Anpassa till CV i högerklicksmenyn.");
-    if (!settings.apiKey) throw new Error("Lägg till din Gemini API-nyckel i tilläggets inställningar först.");
+    if (!pendingJob) throw new Error(t("No job ad found. Go back to LinkedIn and choose Adapt to CV from the right-click menu."));
+    if (!settings.apiKey) throw new Error(t("Add your Gemini API key in the extension settings first."));
     const templates = resolveTemplates(settings);
-    if (!templates.length) throw new Error("Ange länken till din Google Docs-mall i inställningarna.");
+    if (!templates.length) throw new Error(t("Add the link to your Google Docs template in Settings."));
 
     state.job = pendingJob;
     state.settings = settings;
+    startI18n(settings);
     state.allowUnsupported = Boolean(settings.allowUnsupportedSkills);
     state.templates = templates;
     state.templateId = extractDocId(templates[0].url);
     renderTemplatePicker();
 
-    $("jobTitle").textContent = pendingJob.title || "Jobbannons – titel kunde inte identifieras";
-    $("jobCompany").textContent = pendingJob.company || "Företag kunde inte identifieras automatiskt";
+    $("jobTitle").textContent = pendingJob.title || t("Job ad – title could not be identified");
+    $("jobCompany").textContent = pendingJob.company || t("Company could not be identified automatically");
     $("jobLink").href = pendingJob.url;
     renderExtractionWarnings();
     const diagnostics = pendingJob.diagnostics || {};
     $("captureInfo").textContent = [
-      pendingJob.location && `Plats: ${pendingJob.location}`,
-      pendingJob.employmentType && `Anställning: ${pendingJob.employmentType}`,
-      `Beskrivning: ${(diagnostics.descriptionLength || pendingJob.description?.length || 0).toLocaleString("sv-SE")} tecken`,
-      Number.isFinite(diagnostics.timings?.totalMs) && `Extraktionstid: ${(diagnostics.timings.totalMs / 1000).toFixed(1).replace(".", ",")} s`,
-      `Extraktionskälla: ${diagnostics.descriptionSource || "okänd"}`,
+      pendingJob.location && t("Location: {value}", { value: pendingJob.location }),
+      pendingJob.employmentType && t("Employment: {value}", { value: pendingJob.employmentType }),
+      t("Description: {count} characters", { count: (diagnostics.descriptionLength || pendingJob.description?.length || 0).toLocaleString() }),
+      Number.isFinite(diagnostics.timings?.totalMs) && t("Extraction time: {seconds} s", { seconds: (diagnostics.timings.totalMs / 1000).toFixed(1) }),
+      t("Extraction source: {source}", { source: diagnostics.descriptionSource || t("unknown") }),
       diagnostics.jobId && `Annons-ID: ${diagnostics.jobId}`,
-      `Säkerhetsbedömning: ${diagnostics.confidence ?? 0} %`
+      t("Confidence: {percent} %", { percent: diagnostics.confidence ?? 0 })
     ].filter(Boolean).join(" · ");
-    setProgress(33, "Annons och inställningar klara", "Hämtar CV-mallen från Google Docs. Inloggning kan behövas.");
+    setProgress(33, t("Ad and settings ready"), t("Fetching the CV template from Google Docs. Sign-in may be needed."));
 
     const originalDoc = await getDoc(state.templateId);
     const parsed = parseTemplate(originalDoc);
-    if (parsed.errors.length) throw new Error(`Mallen kan inte användas:\n${parsed.errors.join("\n")}`);
-    if (!parsed.sections.length) throw new Error("Mallen innehåller inga redigeringssektioner. Använd formatet [TAG]text[/TAG].");
+    if (parsed.errors.length) throw new Error(`${t("The template cannot be used:")}\n${parsed.errors.join("\n")}`);
+    if (!parsed.sections.length) throw new Error(t("The template has no editable sections. Use the format [TAG]text[/TAG]."));
     state.sections = parsed.sections.map(section => ({
       tag: section.tag,
       original: section.original,
@@ -461,14 +476,14 @@ async function init() {
       listParagraphs: section.listParagraphs
     }));
     state.fullCvText = stripTags(parsed.containers.map(container => container.paragraphs.map(paragraph => paragraph.text).join("")).join("\n"));
-    setProgress(66, "CV-mallen analyserad", `${state.sections.length} redigerbara sektioner hittades. Nästa steg är kravanalysen.`);
+    setProgress(66, t("CV template analysed"), t("{count} editable sections found. Next step is the requirement analysis.", { count: state.sections.length }));
 
     const fingerprint = analysisKey();
     let analysis = await readCachedAnalysis(fingerprint);
     if (analysis) {
-      state.statusMessage = `Kravprofilen återanvänds från en tidigare analys med ${analysis.modelUsed}.`;
+      state.statusMessage = t("The requirement profile is reused from an earlier analysis with {model}.", { model: analysis.modelUsed });
     } else {
-      setProgress(66, "Analyserar annonsen", "Skickar annons och CV till Gemini för kravanalys. Det här anropet kan inte återanvändas förrän annonsen är analyserad.");
+      setProgress(66, t("Analysing the ad"), t("Sending the ad and CV to Gemini for requirement analysis. This call cannot be reused until the ad is analysed."));
       const fresh = await analyzeJob({
         apiKey: settings.apiKey,
         model: settings.model,
@@ -477,7 +492,7 @@ async function init() {
         fullCvText: state.fullCvText
       });
       analysis = { items: fresh.jobAnalysis, modelUsed: fresh.modelUsed };
-      state.statusMessage = `Kravprofilen är analyserad med ${analysis.modelUsed}.`;
+      state.statusMessage = t("The requirement profile was analysed with {model}.", { model: analysis.modelUsed });
       await saveCachedAnalysis({ fingerprint, at: new Date().toISOString(), modelUsed: analysis.modelUsed, items: analysis.items });
     }
     state.jobAnalysis = analysis.items;
@@ -485,7 +500,7 @@ async function init() {
 
     selectSupportedOnly();
     renderRequirements();
-    setProgress(100, "Analysen är klar", "Välj vilka krav CV-anpassningen får bygga på och generera sedan textförslag.");
+    setProgress(100, t("Analysis complete"), t("Choose which requirements the adaptation may build on, then generate text proposals."));
     await refreshUsageCounter();
 
     // Låt det avslutade steget synas en kort stund innan panelen stängs.
@@ -518,8 +533,8 @@ async function quotaShortfall(needed) {
 }
 
 function quotaMessage(models, needed) {
-  const list = models.map(entry => `${modelLabel(entry.model)}: ${entry.left} av ${entry.limit}`).join(", ");
-  return `Dagens kvot är slut för alla modeller (${list}) och ${needed} anrop behövs. Räknaren nollställs vid midnatt Pacific time, och Google visar den exakta gränsen i AI Studio → Rate limits.`;
+  const list = models.map(entry => t("{model}: {left} of {limit}", { model: modelLabel(entry.model), left: entry.left, limit: entry.limit })).join(", ");
+  return t("Today's quota is used up for all models ({list}) and {count} calls are needed. The counter resets at midnight Pacific time, and Google shows the exact limit in AI Studio → Rate limits.", { list, count: needed });
 }
 
 async function generate(skipConfirm = false) {
@@ -535,7 +550,7 @@ async function generate(skipConfirm = false) {
   }
   if (state.edits.size) {
     const edited = [...state.edits.entries()].some(([tag, text]) => text !== (state.proposals?.find(item => item.tag === tag)?.text ?? ""));
-    if (edited && !skipConfirm && !confirm("Dina redigeringar av förslagen ersätts av en ny generering. Fortsätt?")) return;
+    if (edited && !skipConfirm && !confirm(t("Your edits to the proposals will be replaced by a new generation. Continue?"))) return;
   }
   state.busy = true;
   state.statusMessage = "Gemini arbetar…";
@@ -557,7 +572,7 @@ async function generate(skipConfirm = false) {
     state.modelUsed = result.modelUsed;
     state.edits = new Map(result.sections.map(item => [item.tag, item.text]));
     renderProposals();
-    state.statusMessage = `Förslagen är genererade med ${result.modelUsed}.`;
+    state.statusMessage = t("The proposals were generated with {model}.", { model: result.modelUsed });
     $("createError").hidden = true;
   } catch (error) {
     state.statusMessage = "";
@@ -575,9 +590,9 @@ async function generate(skipConfirm = false) {
  */
 async function reanalyze() {
   if (state.busy || state.reanalyzing) return;
-  if (state.proposals && !confirm("En ny kravanalys ersätter kravprofilen och de val du gjort. Förslagen ligger kvar tills du genererar om. Fortsätt?")) return;
+  if (state.proposals && !confirm(t("A new requirement analysis replaces the profile and your selections. The proposals remain until you regenerate. Continue?"))) return;
   state.reanalyzing = true;
-  state.statusMessage = "Gör en ny kravanalys…";
+  state.statusMessage = t("Running a new requirement analysis…");
   $("analysisError").hidden = true;
   refreshSelectionSummary();
   try {
@@ -590,7 +605,7 @@ async function reanalyze() {
     });
     state.jobAnalysis = fresh.jobAnalysis;
     state.modelUsed = fresh.modelUsed;
-    state.statusMessage = `Kravprofilen är analyserad med ${fresh.modelUsed}.`;
+    state.statusMessage = t("The requirement profile was analysed with {model}.", { model: fresh.modelUsed });
     selectSupportedOnly();
     await saveCachedAnalysis({
       fingerprint: analysisKey(),
@@ -624,7 +639,7 @@ async function regenerateSection(tag) {
     return;
   }
   state.busy = true;
-  state.statusMessage = `Genererar om [${tag}]…`;
+  state.statusMessage = t("Regenerating [{tag}]…", { tag });
   refreshSelectionSummary();
   try {
     const result = await generateSections({
@@ -646,7 +661,7 @@ async function regenerateSection(tag) {
     state.edits.set(tag, fresh.text);
     const area = document.querySelector(`textarea[data-tag="${CSS.escape(tag)}"]`);
     if (area) area.value = fresh.text;
-    state.statusMessage = `[${tag}] är omgenererad med ${result.modelUsed}.`;
+    state.statusMessage = t("[{tag}] was regenerated with {model}.", { tag, model: result.modelUsed });
     $("createError").hidden = true;
     refreshProposalSummary();
   } catch (error) {
@@ -668,15 +683,15 @@ function blockingProblem(proposals) {
   // Bara uppgifter som Gemini själv föreslagit blockeras: det användaren själv skriver in är användarens eget påstående.
   const additions = unverifiedAdditions(proposals).filter(item => item.severity === "block" && (state.proposals || []).some(proposal => proposal.tag === item.tag && (proposal.text || "").includes(item.term)));
   if (additions.length) {
-    return `Gemini föreslår uppgifter som inte finns i CV:t eller annonsen: ${additions.map(item => `${item.term} (${item.tag})`).join(", ")}. Ta bort dem innan du skapar CV:t, annars vore det en påhittad erfarenhet.`;
+    return t("Gemini proposes details that are not in the CV or the ad: {list}. Remove them before creating the CV, otherwise it would be invented experience.", { list: additions.map(item => `${item.term} (${item.tag})`).join(", ") });
   }
   const violations = unapprovedViolations(proposals);
   if (violations.length) {
-    return `Texten innehåller kompetenser som saknar belägg i CV:t och som du inte har godkänt: ${violations.map(item => `${item.name} (${item.tag})`).join(", ")}. Ta bort dem ur förslaget, eller tillåt ej styrkta kompetenser i inställningarna och välj dem medvetet.`;
+    return t("The text contains skills without evidence in the CV that you have not approved: {list}. Remove them from the proposal, or allow unverified skills in Settings and select them deliberately.", { list: violations.map(item => `${item.name} (${item.tag})`).join(", ") });
   }
   const conflicts = checkProposalConsistency({ proposals, cvText: state.fullCvText }).filter(item => item.level === "block");
   if (conflicts.length) {
-    return `Konsekvenskontrollen stoppar: ${conflicts.map(item => `${item.message} [${item.tag}]`).join(" ")} Rätta perioderna i förslagen först — CV:t är källan till årtalen.`;
+    return t("The consistency check stops: {list} Fix the periods in the proposals first — the CV is the source of the dates.", { list: conflicts.map(item => `${item.message} [${item.tag}]`).join(" ") });
   }
   try {
     for (const proposal of proposals) assertSafeProposalText(proposal.tag, proposal.text);
@@ -707,9 +722,9 @@ async function create() {
   button.disabled = true;
   button.textContent = "Skapar Google Docs-kopia…";
   try {
-    const role = state.job.title || "Anpassat CV";
-    const company = state.job.company || "Företag";
-    const title = `CV – ${role} – ${company}`.replace(/[\\/:*?"<>|]/g, "-").slice(0, 120);
+    const role = state.job.title || t("Adapted CV");
+    const company = state.job.company || t("Company");
+    const title = `${t("CV")} – ${role} – ${company}`.replace(/[\\/:*?"<>|]/g, "-").slice(0, 120);
     const copy = await copyTemplate(state.templateId, title);
     try {
       await updateCopiedDoc(copy.id, proposals);
@@ -717,8 +732,8 @@ async function create() {
       // En kopia som inte blev godkänd ska inte ligga kvar i Drive som ett halvfärdigt CV.
       const removed = await discardCopiedDoc(copy.id);
       const cleanup = removed
-        ? "Den ofullständiga kopian har tagits bort från Google Drive."
-        : "Kopian kunde inte tas bort automatiskt — radera den i Google Drive.";
+        ? t("The incomplete copy was removed from Google Drive.")
+        : t("The copy could not be removed automatically — delete it in Google Drive.");
       throw new Error(`${error.message}\n${cleanup}`);
     }
     const url = copy.webViewLink || `https://docs.google.com/document/d/${copy.id}/edit`;
@@ -730,12 +745,12 @@ async function create() {
     button.textContent = "CV skapat";
     const done = document.createElement("section");
     done.className = "success-box";
-    done.innerHTML = `<strong>Ditt CV är klart och kontrollerat.</strong><p>En kopia finns i Google Drive och innehåller exakt den text du godkände. Originalmallen är oförändrad.</p><a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">Öppna Google Docs-dokumentet ↗</a>`;
+    done.innerHTML = `<strong>${t("Your CV is ready and verified.")}</strong><p>${t("A copy is in Google Drive and contains exactly the text you approved. The original template is unchanged.")}</p><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${t("Open the Google Docs document")} ↗</a>`;
     $("content").prepend(done);
   } catch (error) {
     state.creating = false;
     button.disabled = false;
-    button.textContent = "Försök skapa CV igen";
+    button.textContent = t("Try creating the CV again");
     showCreateError(error);
   }
 }
@@ -757,9 +772,9 @@ function addRequirement() {
   const status = $("requirementStatus");
   const name = input.value.trim();
   const problem = name.length < 2
-    ? "Skriv minst två tecken."
+    ? t("Enter at least two characters.")
     : state.jobAnalysis.some(item => item.name.toLowerCase() === name.toLowerCase())
-      ? "Kravet finns redan i listan."
+      ? t("The requirement is already in the list.")
       : null;
   if (problem) {
     status.hidden = false;
@@ -770,10 +785,10 @@ function addRequirement() {
     category: "other",
     name,
     importance: "required",
-    evidence: "Tillagt av dig",
+    evidence: t("Added by you"),
     status: "supported",
     cvEvidence: "",
-    recommendation: "Manuellt tillagt krav – du ansvarar själv för att det stämmer.",
+    recommendation: t("Manually added requirement – you are responsible for its accuracy."),
     manual: true
   };
   state.jobAnalysis.push(item);
@@ -849,10 +864,10 @@ $("copyDiagnostics").addEventListener("click", async () => {
   };
   try {
     await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
-    button.textContent = "Diagnostik kopierad";
-    setTimeout(() => { button.textContent = "Kopiera diagnostik"; }, 2500);
+    button.textContent = t("Copied diagnostics");
+    setTimeout(() => { button.textContent = t("Copy diagnostics"); }, 2500);
   } catch {
-    showCreateError("Kunde inte kopiera till urklipp. Öppna konsolen och kopiera utskriften i stället.");
+    showCreateError(t("Could not copy to the clipboard. Open the console and copy the output instead."));
     console.log(JSON.stringify(payload, null, 2));
   }
 });
