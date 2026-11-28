@@ -10,6 +10,9 @@
 - Extension name and description are localised through `_locales/en` and
   `_locales/sv`.
 - Extraction warnings are stored as codes and translated in the review page.
+- When several CVs are saved, you choose which one the analysis uses before it
+  starts. With a single CV the flow runs automatically. The chosen CV is also
+  the one the new copy is created from.
 
 **Security and privacy**
 

@@ -1,6 +1,12 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src https://generativelanguage.googleapis.com https://www.googleapis.com https://docs.googleapis.com"><meta name="viewport" content="width=device-width,initial-scale=1"><title data-i18n="Review CV changes">Review CV changes</title><link rel="stylesheet" href="styles.css"></head>
 <body class="page"><main class="preview-wrap"><header class="brand"><div class="brand-mark">CV</div><div><h1 data-i18n="Review CV adaptation">Review CV adaptation</h1><p data-i18n="Changes are proposed – nothing is created until you approve.">Changes are proposed – nothing is created until you approve.</p></div><div id="usageCounter" class="usage-counter" data-i18n-title="Today's Gemini calls"><strong>0</strong><span data-i18n="calls today">calls today</span></div>
 </header>
+<section id="templatePanel" class="panel" hidden>
+  <div class="section-head"><div><span class="eyebrow" data-i18n="CV CHOICE">CV CHOICE</span><h2 data-i18n="Which CV should the analysis use?">Which CV should the analysis use?</h2></div></div>
+  <p class="hint" data-i18n="The analysis, the proposals and the new copy are built from the CV you choose here. The original document is never changed.">The analysis, the proposals and the new copy are built from the CV you choose here. The original document is never changed.</p>
+  <div id="templateList" class="template-list" role="group" data-i18n-aria="CV to adapt"></div>
+  <div class="actions"><button id="startAnalysis" class="primary" type="button" disabled data-i18n="Analyse this CV">Analyse this CV</button></div>
+</section>
 <section id="loading" class="panel progress-panel" aria-live="polite" aria-busy="true">
   <div class="progress-heading"><strong id="progressTitle" data-i18n="Preparing the analysis…">Preparing the analysis…</strong><strong id="progressPercent">0 %</strong></div>
   <div class="progress-track" role="progressbar" data-i18n-aria="Analysis steps completed" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progressBar"><div id="progressFill" class="progress-fill"></div></div>
@@ -36,7 +42,7 @@
     <div id="noChanges" class="empty" hidden><strong data-i18n="No content changes needed.">No content changes needed.</strong><span data-i18n="The tags are removed in the final copy anyway.">The tags are removed in the final copy anyway.</span></div>
   </section>
   <div id="createError" class="error-box" hidden></div>
-  <div class="sticky-actions"><select id="templateSelect" hidden data-i18n-aria="Template to create the CV from"></select><button id="create" class="primary" type="button" disabled data-i18n="Approve and create CV">Approve and create CV</button><button id="cancel" class="secondary" type="button" data-i18n="Cancel">Cancel</button></div>
+  <div class="sticky-actions"><span id="templateNote" class="template-note" hidden></span><button id="create" class="primary" type="button" disabled data-i18n="Approve and create CV">Approve and create CV</button><button id="cancel" class="secondary" type="button" data-i18n="Cancel">Cancel</button></div>
   <p class="footnote" data-i18n="Only text inside tagged sections can change. All other CV text is left untouched. Skills without evidence are never added automatically.">Only text inside tagged sections can change. All other CV text is left untouched. Skills without evidence are never added automatically.</p>
 </div>
 </main><script src="preview.js" type="module"></script></body></html>

@@ -179,7 +179,7 @@ async function addTemplate() {
     return;
   }
   const current = resolveTemplates(existing);
-  const templates = [...current, { name: draft.name || `Mall ${current.length + 1}`, url: draft.url }];
+  const templates = [...current, { name: draft.name || t("Template {number}", { number: current.length + 1 }), url: draft.url }];
   await saveSettings(() => ({ templates, templateUrl: "" }));
   $("templateName").value = "";
   $("templateUrl").value = "";

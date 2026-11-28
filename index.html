@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CV Adapter – tailor your CV to the job ad</title>
+<meta name="description" content="CV Adapter reads a LinkedIn job ad, compares it with your own Google Docs CV and drafts a tailored copy. You approve every line before anything is written.">
+<link rel="icon" href="icons/icon128.png">
+<style>
+  :root {
+    color-scheme: light;
+    --ink: #17202b;
+    --muted: #647184;
+    --line: #e1e6ed;
+    --bg: #f4f6f9;
+    --card: #ffffff;
+    --blue: #2457d6;
+    --blue-dark: #1745b8;
+    --blue-soft: #eaf0ff;
+    --green: #137a50;
+    --green-bg: #eaf7f0;
+    --red: #a23b3b;
+    --red-bg: #fff0f0;
+    --shadow: 0 1px 2px rgba(23, 32, 43, .06), 0 12px 32px rgba(23, 32, 43, .08);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.6 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, p { margin: 0; }
+  h1 { font-size: clamp(2rem, 4.6vw, 3.25rem); line-height: 1.1; letter-spacing: -.02em; }
+  h2 { font-size: clamp(1.5rem, 2.6vw, 2rem); line-height: 1.2; letter-spacing: -.01em; }
+  h3 { font-size: 1.0625rem; line-height: 1.35; }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  :focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; border-radius: 6px; }
+  img { max-width: 100%; display: block; }
+
+  .wrap { width: min(1080px, 100% - 40px); margin-inline: auto; }
+  .skip {
+    position: absolute; left: -999px; top: 12px; z-index: 100;
+    background: var(--card); padding: 10px 16px; border-radius: 8px;
+  }
+  .skip:focus { left: 12px; }
+
+  /* Header */
+  .site-header {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(244, 246, 249, .86);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .site-header .wrap {
+    display: flex; align-items: center; gap: 24px;
+    min-height: 64px; padding-block: 10px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; color: var(--ink); }
+  .brand:hover { text-decoration: none; }
+  .brand svg { flex: none; }
+  .nav { display: flex; gap: 22px; margin-left: auto; font-size: .9375rem; }
+  .nav a { color: var(--muted); }
+  .nav a:hover { color: var(--ink); text-decoration: none; }
+  .header-cta { margin-left: 4px; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 11px 20px; border-radius: 10px; border: 1px solid transparent;
+    font: inherit; font-weight: 600; line-height: 1.2; cursor: pointer;
+  }
+  .btn:hover { text-decoration: none; }
+  .btn-primary { background: var(--blue); color: #fff; }
+  .btn-primary:hover { background: var(--blue-dark); }
+  .btn-ghost { background: var(--card); color: var(--ink); border-color: var(--line); }
+  .btn-ghost:hover { border-color: #c7d0dc; }
+  .btn-sm { padding: 8px 14px; font-size: .875rem; }
+
+  /* Hero */
+  .hero { padding: clamp(48px, 8vw, 96px) 0 clamp(40px, 6vw, 72px); }
+  .hero-grid {
+    display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr);
+    gap: clamp(32px, 5vw, 64px); align-items: center;
+  }
+  .eyebrow {
+    display: inline-block; margin-bottom: 18px;
+    font-size: .8125rem; font-weight: 650; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--blue);
+  }
+  .lede { margin-top: 20px; font-size: 1.125rem; color: var(--muted); max-width: 34em; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+  .hero-note { margin-top: 14px; font-size: .875rem; color: var(--muted); }
+
+  /* Mock review panel */
+  .panel {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 16px; box-shadow: var(--shadow); overflow: hidden;
+  }
+  .panel-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+    font-size: .8125rem; color: var(--muted); background: #fbfcfd;
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #cfd7e2; }
+  .panel-body { padding: 16px; display: grid; gap: 10px; }
+  .panel-title { font-size: .9375rem; font-weight: 650; padding: 0 0 6px; }
+  .panel-title span { display: block; font-weight: 400; color: var(--muted); font-size: .8125rem; }
+  .req {
+    display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: start;
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: .875rem;
+  }
+  .req p { line-height: 1.4; }
+  .req .mark { font-weight: 700; color: var(--green); line-height: 1.4; }
+  .tag {
+    font-size: .6875rem; font-weight: 650; padding: 3px 8px; border-radius: 999px;
+    white-space: nowrap; background: var(--green-bg); color: var(--green);
+  }
+  .req.blocked { background: #fdfafa; border-color: #f2dede; }
+  .req.blocked .mark { color: var(--red); }
+  .req.blocked .tag { background: var(--red-bg); color: var(--red); }
+  .panel-foot {
+    padding: 12px 16px; border-top: 1px solid var(--line);
+    font-size: .8125rem; color: var(--muted); background: #fbfcfd;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip {
+    font: 600 .6875rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    padding: 5px 8px; border-radius: 6px; background: #eef1f6; color: #4a5666;
+  }
+
+  /* Sections */
+  section { padding-block: clamp(48px, 7vw, 88px); }
+  .section-head { max-width: 640px; margin-bottom: 36px; }
+  .section-head p { margin-top: 12px; color: var(--muted); }
+  .band { background: var(--card); border-block: 1px solid var(--line); }
+
+  .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .step {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px;
+  }
+  .step-num {
+    display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 8px;
+    background: var(--blue-soft); color: var(--blue); font-weight: 700; font-size: .875rem;
+    margin-bottom: 14px;
+  }
+  .step p { margin-top: 8px; font-size: .9375rem; color: var(--muted); }
+
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .feature { padding: 22px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+  .feature p { margin-top: 8px; font-size: .9375rem; color: var(--muted); }
+  .feature .icon {
+    width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
+    background: var(--blue-soft); color: var(--blue); margin-bottom: 14px;
+  }
+
+  /* Privacy */
+  .privacy-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px; align-items: start; }
+  .privacy-list { display: grid; gap: 14px; margin: 24px 0 0; padding: 0; list-style: none; }
+  .privacy-list li { display: grid; grid-template-columns: 20px 1fr; gap: 10px; font-size: .9375rem; }
+  .privacy-list strong { display: block; }
+  .privacy-list span { color: var(--muted); }
+  .check { color: var(--green); font-weight: 700; }
+  .privacy-card {
+    background: var(--ink); color: #e8edf5; border-radius: 16px; padding: 26px;
+  }
+  .privacy-card h3 { color: #fff; }
+  .privacy-card p { margin-top: 10px; font-size: .9375rem; color: #b6c1d1; }
+  .privacy-card a { color: #9db8ff; }
+  .privacy-card .rule { height: 1px; background: rgba(255, 255, 255, .14); margin: 18px 0; }
+  .privacy-card .mini { font-size: .8125rem; color: #93a0b3; }
+
+  /* Install */
+  .install-grid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 40px; }
+  .req-list { display: grid; gap: 12px; margin: 22px 0 0; padding: 0; list-style: none; }
+  .req-list li { padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); font-size: .9375rem; }
+  .req-list span { display: block; color: var(--muted); font-size: .875rem; }
+  .install-steps { counter-reset: step; display: grid; gap: 14px; padding: 0; margin: 0; list-style: none; }
+  .install-steps li { position: relative; padding-left: 44px; font-size: .9375rem; }
+  .install-steps li::before {
+    counter-increment: step; content: counter(step);
+    position: absolute; left: 0; top: -1px;
+    width: 30px; height: 30px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: var(--card); border: 1px solid var(--line); font-weight: 650; font-size: .875rem;
+  }
+  .install-steps strong { display: block; margin-bottom: 2px; }
+  .install-steps span { color: var(--muted); }
+  .store-note {
+    display: flex; gap: 10px; align-items: flex-start; margin-top: 22px;
+    padding: 14px 16px; border-radius: 10px; background: var(--blue-soft);
+    font-size: .875rem; color: #2a3a5c;
+  }
+
+  /* FAQ */
+  .faq { display: grid; gap: 10px; max-width: 780px; }
+  details {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 0 18px;
+  }
+  details[open] { padding-bottom: 16px; }
+  summary {
+    cursor: pointer; padding: 16px 0; font-weight: 600; list-style: none;
+    display: flex; justify-content: space-between; gap: 16px; align-items: center;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; color: var(--muted); font-weight: 400; font-size: 1.25rem; }
+  details[open] summary::after { content: "–"; }
+  details p { color: var(--muted); font-size: .9375rem; }
+
+  /* Closing CTA + footer */
+  .cta { text-align: center; padding-block: clamp(56px, 8vw, 96px); }
+  .cta p { margin: 14px auto 0; max-width: 36em; color: var(--muted); }
+  .cta .actions { justify-content: center; }
+  .site-footer { border-top: 1px solid var(--line); background: var(--card); padding-block: 32px; font-size: .875rem; color: var(--muted); }
+  .footer-grid { display: flex; flex-wrap: wrap; gap: 20px 32px; justify-content: space-between; align-items: flex-start; }
+  .footer-links { display: flex; flex-wrap: wrap; gap: 18px; }
+  .footer-links a { color: var(--muted); }
+  .footer-links a:hover { color: var(--ink); }
+  .footer-note { margin-top: 18px; font-size: .8125rem; color: #8b97a8; }
+
+  @media (max-width: 900px) {
+    .hero-grid, .privacy-grid, .install-grid { grid-template-columns: 1fr; }
+    .steps { grid-template-columns: repeat(2, 1fr); }
+    .features { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 640px) {
+    .nav { display: none; }
+    .steps, .features { grid-template-columns: 1fr; }
+    .header-cta { margin-left: auto; }
+    .hero { padding-top: 40px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="#top">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
+        <rect width="28" height="28" rx="7" fill="#2457d6"/>
+        <path d="M8.5 7.5h7.2l4 4v9a1 1 0 0 1-1 1H8.5a1 1 0 0 1-1-1v-12a1 1 0 0 1 1-1Z" fill="#fff" opacity=".95"/>
+        <path d="M15.7 7.5v4h4" fill="#c9d8ff"/>
+        <path d="M10.5 15.5h6M10.5 18h4.5" stroke="#2457d6" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+      CV Adapter
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/Rollpan89/LinkedCV">GitHub</a>
+    </nav>
+    <a class="btn btn-primary btn-sm header-cta" href="#install">Get started</a>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" id="top">
+    <div class="wrap hero-grid">
+      <div>
+        <span class="eyebrow">Chrome extension for Google Docs CVs</span>
+        <h1>Your CV, adapted to the job — line by line.</h1>
+        <p class="lede">
+          CV Adapter reads the LinkedIn ad you are looking at, compares it with the CV
+          in your own Google Docs and drafts a tailored copy. You approve every change
+          before a single word is written.
+        </p>
+        <div class="actions">
+          <a class="btn btn-primary" href="#how">See how it works</a>
+          <a class="btn btn-ghost" href="https://github.com/Rollpan89/LinkedCV">View on GitHub</a>
+        </div>
+        <p class="hero-note">Free and open source. No account, no backend, your own Gemini API key.</p>
+      </div>
+
+      <div class="panel" aria-hidden="true">
+        <div class="panel-bar">
+          <span>Review · Senior Frontend Developer</span>
+          <span class="dot" aria-hidden="true"></span>
+        </div>
+        <div class="panel-body">
+          <p class="panel-title">Northwind AB<span>5 requirements found in the ad</span></p>
+
+          <div class="req">
+            <span class="mark" aria-hidden="true">✓</span>
+            <p>Five years with TypeScript and React</p>
+            <span class="tag">Supported</span>
+          </div>
+          <div class="req">
+            <span class="mark" aria-hidden="true">✓</span>
+            <p>Led design-system work across teams</p>
+            <span class="tag">Supported</span>
+          </div>
+          <div class="req">
+            <span class="mark" aria-hidden="true">✓</span>
+            <p>Fluent English and Swedish</p>
+            <span class="tag">Supported</span>
+          </div>
+          <div class="req blocked">
+            <span class="mark" aria-hidden="true">⊘</span>
+            <p>Kubernetes in production</p>
+            <span class="tag">No evidence</span>
+          </div>
+
+          <div class="chips" aria-label="Template sections">
+            <span class="chip">[ERFARENHET]</span>
+            <span class="chip">[KOMPETENS]</span>
+            <span class="chip">[UTBILDNING]</span>
+          </div>
+        </div>
+        <div class="panel-foot">3 of 5 selected · nothing has been written yet</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="how">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Four steps, one review screen</h2>
+        <p>No new editor to learn. The extension works on the template you already have and shows its work before it touches anything.</p>
+      </div>
+      <div class="steps">
+        <article class="step">
+          <span class="step-num">1</span>
+          <h3>Open a job ad</h3>
+          <p>On LinkedIn Jobs, right-click and choose <strong>Adapt to CV</strong>. The ad text is read from the page you are on.</p>
+        </article>
+        <article class="step">
+          <span class="step-num">2</span>
+          <h3>Review the requirements</h3>
+          <p>Each requirement is marked supported, partly supported or missing, with the CV text it is based on.</p>
+        </article>
+        <article class="step">
+          <span class="step-num">3</span>
+          <h3>Approve the wording</h3>
+          <p>Proposals appear as a word-level diff. Edit, reject or regenerate a section until it reads like you.</p>
+        </article>
+        <article class="step">
+          <span class="step-num">4</span>
+          <h3>Get a new document</h3>
+          <p>A copy of your template with only the approved text, checked against the diff before you open it.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Built to keep you in control</h2>
+        <p>An adapted CV is only useful if you can defend every sentence in it. The extension is designed around that.</p>
+      </div>
+      <div class="features">
+        <article class="feature">
+          <div class="icon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          </div>
+          <h3>Evidence, not guesses</h3>
+          <p>Every proposal points to the CV text behind it. Skills without evidence stay out unless you explicitly allow them.</p>
+        </article>
+        <article class="feature">
+          <div class="icon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M5 8h14"/><path d="M5 16h14"/></svg>
+          </div>
+          <h3>You see the diff</h3>
+          <p>Added and removed words are highlighted per section, so a rewrite never slips past you.</p>
+        </article>
+        <article class="feature">
+          <div class="icon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+          </div>
+          <h3>Your template stays yours</h3>
+          <p>Sections are found by tags such as <span class="chip">[ERFARENHET]</span> or <span class="chip">[KOMPETENS]</span>. The original is never written to.</p>
+        </article>
+        <article class="feature">
+          <div class="icon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M21 3v6h-6"/></svg>
+          </div>
+          <h3>The copy is verified</h3>
+          <p>The finished document is compared with the approved text. If anything differs, the copy is discarded instead of handed over.</p>
+        </article>
+        <article class="feature">
+          <div class="icon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>
+          </div>
+          <h3>Free-tier aware</h3>
+          <p>Only Gemini models with a free standard tier are accepted. The daily counter and fallback order keep you inside the quota.</p>
+        </article>
+        <article class="feature">
+          <div class="icon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 0 20a15 15 0 0 1 0-20"/></svg>
+          </div>
+          <h3>English and Swedish</h3>
+          <p>The interface is in English by default and switches to Swedish in Settings. The language of the CV itself is a separate choice.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="privacy">
+    <div class="wrap privacy-grid">
+      <div>
+        <span class="eyebrow">Privacy</span>
+        <h2>No server in the middle</h2>
+        <p class="lede" style="max-width:none">The extension talks directly to Google with your credentials. There is nothing to sign up for and no one else to trust with your CV.</p>
+        <ul class="privacy-list">
+          <li><span class="check" aria-hidden="true">✓</span><span><strong>Your own API key</strong>Stored only in this Chrome profile, never synced and never sent anywhere except Google's API.</span></li>
+          <li><span class="check" aria-hidden="true">✓</span><span><strong>Settings sync without secrets</strong>Preferences follow you between profiles; the API key and CV content do not.</span></li>
+          <li><span class="check" aria-hidden="true">✓</span><span><strong>No analytics or remote code</strong>No telemetry, no advertising, nothing loaded from a third-party server.</span></li>
+          <li><span class="check" aria-hidden="true">✓</span><span><strong>Delete everything in one step</strong>Settings clears the cached analyses, the counter, the history and all local data.</span></li>
+        </ul>
+      </div>
+      <aside class="privacy-card">
+        <h3>What leaves your computer</h3>
+        <p>The job ad text and the CV text are sent to the Google Gemini API for analysis and drafting, using your key.</p>
+        <p>Your template and the new copy are read and written through the Google Docs and Drive APIs with your OAuth token.</p>
+        <div class="rule" aria-hidden="true"></div>
+        <p class="mini">That is the whole list. No other server is contacted.</p>
+        <p><a href="PRIVACY.md">Read the full privacy policy</a></p>
+      </aside>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Set up in about a minute</h2>
+        <p>You need Chrome 105 or later, a Google account and a free Gemini API key from Google AI Studio.</p>
+      </div>
+      <div class="install-grid">
+        <div>
+          <h3>Before you start</h3>
+          <ul class="req-list">
+            <li>Chrome 105+<span>Any recent desktop version works.</span></li>
+            <li>A Google account<span>Used only to create the copy in your own Drive.</span></li>
+            <li>A Gemini API key<span>Created in Google AI Studio. The free tier is enough.</span></li>
+          </ul>
+          <div class="store-note">
+            <span aria-hidden="true">ℹ</span>
+            <span>The Chrome Web Store listing is in review. Until it is live, load the unpacked extension from the repository.</span>
+          </div>
+        </div>
+        <div>
+          <h3>Install and connect</h3>
+          <ol class="install-steps">
+            <li><strong>Load the extension</strong><span>Open <code>chrome://extensions</code>, enable Developer mode and choose <em>Load unpacked</em> with the project folder.</span></li>
+            <li><strong>Paste your API key</strong><span>Open Settings and enter the Gemini key. It stays in this profile.</span></li>
+            <li><strong>Add your template</strong><span>Paste the Google Docs link and run the template check so the tags are recognised.</span></li>
+            <li><strong>Adapt your first ad</strong><span>Open a LinkedIn job ad, right-click and choose <em>Adapt to CV</em>.</span></li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Questions</h2>
+      </div>
+      <div class="faq">
+        <details>
+          <summary>Does it overwrite my CV?</summary>
+          <p>No. The extension creates a new document in your Drive and never writes to the template you added.</p>
+        </details>
+        <details>
+          <summary>What happens to a skill the ad asks for but my CV does not mention?</summary>
+          <p>It is marked as having no evidence and is left out. You can allow unverified skills in Settings, but they are then clearly marked and you are responsible for reviewing them.</p>
+        </details>
+        <details>
+          <summary>Which Gemini models can I use?</summary>
+          <p>Only models with a free standard tier. The extension rejects other model IDs and never switches to a paid model on its own.</p>
+        </details>
+        <details>
+          <summary>What does the extension read?</summary>
+          <p>Only the job ad you capture and the template you have added. It does not browse your Drive or read other tabs.</p>
+        </details>
+        <details>
+          <summary>What does it cost?</summary>
+          <p>The extension is free and open source. You use your own Gemini key, and Google's free tier covers normal use. Google may change its quotas over time.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta">
+    <div class="wrap">
+      <h2>Ready for the next application?</h2>
+      <p>Keep the CV that got you this far. Change only what the ad actually asks for.</p>
+      <div class="actions">
+        <a class="btn btn-primary" href="#install">Get started</a>
+        <a class="btn btn-ghost" href="https://github.com/Rollpan89/LinkedCV">Browse the source</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div>
+        <div class="brand" style="font-size:.9375rem">
+          <svg width="22" height="22" viewBox="0 0 28 28" aria-hidden="true">
+            <rect width="28" height="28" rx="7" fill="#2457d6"/>
+            <path d="M8.5 7.5h7.2l4 4v9a1 1 0 0 1-1 1H8.5a1 1 0 0 1-1-1v-12a1 1 0 0 1 1-1Z" fill="#fff" opacity=".95"/>
+            <path d="M15.7 7.5v4h4" fill="#c9d8ff"/>
+          </svg>
+          CV Adapter
+        </div>
+        <p class="footer-note">Not affiliated with LinkedIn or Google. Gemini and Google Docs are trademarks of Google LLC.</p>
+      </div>
+      <nav class="footer-links" aria-label="Footer">
+        <a href="README.md">Documentation</a>
+        <a href="PRIVACY.md">Privacy</a>
+        <a href="terms.html">Terms</a>
+        <a href="CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/Rollpan89/LinkedCV">GitHub</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

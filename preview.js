@@ -56,6 +56,8 @@ const state = {
   settings: {},
   templates: [],
   templateId: null,
+  templateName: "",
+  templateChoice: null,
   sections: [],
   fullCvText: "",
   jobAnalysis: [],
@@ -112,10 +114,24 @@ function renderErrorBox(box, error, retry) {
   }
 }
 
-function showError(error, retry) {
+/**
+ * Visar felrutan. Med flera CV:n får användaren också en väg tillbaka till
+ * valet, så ett trasigt CV inte låser hela flödet.
+ */
+function showError(error, retry, alternative) {
   $("loading").hidden = true;
   $("content").hidden = true;
   renderErrorBox($("error"), error, retry);
+  if (!alternative) return;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "secondary";
+  button.textContent = alternative.label;
+  button.addEventListener("click", () => {
+    $("error").hidden = true;
+    alternative.run();
+  });
+  $("error").append(button);
 }
 
 function showCreateError(error, retry) {
@@ -182,17 +198,42 @@ async function refreshUsageCounter() {
   ].join("\n");
 }
 
-/** Med flera mallar väljer användaren vilken som kopieras. Originalmallen ändras aldrig. */
-function renderTemplatePicker() {
-  const select = $("templateSelect");
-  select.replaceChildren(...state.templates.map((template, index) => {
-    const option = document.createElement("option");
-    option.value = String(index);
-    option.textContent = template.name;
-    return option;
+/**
+ * Med flera CV:n väljs det CV analysen ska utgå från innan något skickas till
+ * Gemini. Valet styr både vilket dokument som läses och vilken mall som kopieras;
+ * originalmallen ändras aldrig.
+ */
+function showTemplateChooser() {
+  renderTemplateChooser();
+  $("loading").hidden = true;
+  $("content").hidden = true;
+  $("templatePanel").hidden = false;
+}
+
+function renderTemplateChooser() {
+  const list = $("templateList");
+  state.templateChoice = null;
+  $("startAnalysis").disabled = true;
+  list.replaceChildren(...state.templates.map((template, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "template-choice";
+    button.dataset.index = String(index);
+    button.setAttribute("aria-pressed", "false");
+    const name = document.createElement("strong");
+    name.textContent = template.name;
+    const tick = document.createElement("span");
+    tick.className = "tick";
+    tick.setAttribute("aria-hidden", "true");
+    tick.textContent = "✓";
+    button.append(name, tick);
+    button.addEventListener("click", () => {
+      state.templateChoice = index;
+      for (const item of list.children) item.setAttribute("aria-pressed", item === button ? "true" : "false");
+      $("startAnalysis").disabled = false;
+    });
+    return button;
   }));
-  select.hidden = state.templates.length < 2;
-  select.value = "0";
 }
 
 function renderExtractionWarnings() {
@@ -426,9 +467,6 @@ async function saveCachedAnalysis(entry) {
 /* ---------------- Arbetsflöde ---------------- */
 
 async function init() {
-  $("loading").hidden = false;
-  $("loading").setAttribute("aria-busy", "true");
-  setProgress(0, t("Starting the CV adaptation"), t("Checking the ad and your settings."));
   try {
     const [{ pendingJob }, settings] = await Promise.all([
       chrome.storage.session.get("pendingJob"),
@@ -444,8 +482,6 @@ async function init() {
     startI18n(settings);
     state.allowUnsupported = Boolean(settings.allowUnsupportedSkills);
     state.templates = templates;
-    state.templateId = extractDocId(templates[0].url);
-    renderTemplatePicker();
 
     $("jobTitle").textContent = pendingJob.title || t("Job ad – title could not be identified");
     $("jobCompany").textContent = pendingJob.company || t("Company could not be identified automatically");
@@ -458,9 +494,31 @@ async function init() {
       t("Description: {count} characters", { count: (diagnostics.descriptionLength || pendingJob.description?.length || 0).toLocaleString() }),
       Number.isFinite(diagnostics.timings?.totalMs) && t("Extraction time: {seconds} s", { seconds: (diagnostics.timings.totalMs / 1000).toFixed(1) }),
       t("Extraction source: {source}", { source: diagnostics.descriptionSource || t("unknown") }),
-      diagnostics.jobId && `Annons-ID: ${diagnostics.jobId}`,
+      diagnostics.jobId && t("Ad ID: {id}", { id: diagnostics.jobId }),
       t("Confidence: {percent} %", { percent: diagnostics.confidence ?? 0 })
     ].filter(Boolean).join(" · ");
+
+    if (templates.length > 1) {
+      // Analysen startar först när användaren har valt CV: valet styr både vilket
+      // dokument som läses och vilken mall kopian skapas från.
+      showTemplateChooser();
+      return;
+    }
+    await startAnalysis(templates[0]);
+  } catch (error) {
+    showError(error, init);
+  }
+}
+
+/** Hämtar det valda CV:t och kör kravanalysen. Med ett enda CV sker det direkt. */
+async function startAnalysis(template) {
+  state.templateId = extractDocId(template.url);
+  state.templateName = template.name;
+  $("templatePanel").hidden = true;
+  $("loading").hidden = false;
+  $("loading").setAttribute("aria-busy", "true");
+  setProgress(0, t("Starting the CV adaptation"), t("Checking the ad and your settings."));
+  try {
     setProgress(33, t("Ad and settings ready"), t("Fetching the CV template from Google Docs. Sign-in may be needed."));
 
     const originalDoc = await getDoc(state.templateId);
@@ -485,9 +543,9 @@ async function init() {
     } else {
       setProgress(66, t("Analysing the ad"), t("Sending the ad and CV to Gemini for requirement analysis. This call cannot be reused until the ad is analysed."));
       const fresh = await analyzeJob({
-        apiKey: settings.apiKey,
-        model: settings.model,
-        fallbackModels: settings.fallbackModels,
+        apiKey: state.settings.apiKey,
+        model: state.settings.model,
+        fallbackModels: state.settings.fallbackModels,
         job: jobPayload(),
         fullCvText: state.fullCvText
       });
@@ -507,9 +565,15 @@ async function init() {
     await new Promise(resolve => setTimeout(resolve, 400));
     $("loading").setAttribute("aria-busy", "false");
     $("loading").hidden = true;
+    $("templateNote").textContent = t("Based on: {name}", { name: state.templateName });
+    $("templateNote").hidden = false;
     $("content").hidden = false;
   } catch (error) {
-    showError(error, init);
+    showError(
+      error,
+      () => startAnalysis(template),
+      state.templates.length > 1 ? { label: t("Choose another CV"), run: showTemplateChooser } : null
+    );
   }
 }
 
@@ -553,7 +617,7 @@ async function generate(skipConfirm = false) {
     if (edited && !skipConfirm && !confirm(t("Your edits to the proposals will be replaced by a new generation. Continue?"))) return;
   }
   state.busy = true;
-  state.statusMessage = "Gemini arbetar…";
+  state.statusMessage = t("Gemini is working…");
   refreshSelectionSummary();
   try {
     const result = await generateSections({
@@ -720,7 +784,7 @@ async function create() {
   }
   state.creating = true;
   button.disabled = true;
-  button.textContent = "Skapar Google Docs-kopia…";
+  button.textContent = t("Creating the Google Docs copy…");
   try {
     const role = state.job.title || t("Adapted CV");
     const company = state.job.company || t("Company");
@@ -742,7 +806,7 @@ async function create() {
     // Historiken gallras vid varje sparning så att gamla poster inte blir kvar för evigt.
     await chrome.storage.local.set({ history: pruneHistory([entry, ...history]) });
     chrome.runtime.sendMessage({ type: "CV_CREATED" }).catch(() => {});
-    button.textContent = "CV skapat";
+    button.textContent = t("CV created");
     const done = document.createElement("section");
     done.className = "success-box";
     done.innerHTML = `<strong>${t("Your CV is ready and verified.")}</strong><p>${t("A copy is in Google Drive and contains exactly the text you approved. The original template is unchanged.")}</p><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${t("Open the Google Docs document")} ↗</a>`;
@@ -814,9 +878,9 @@ $("requirementsList").addEventListener("click", event => {
   renderRequirements();
 });
 
-$("templateSelect").addEventListener("change", () => {
-  const template = state.templates[Number($("templateSelect").value)];
-  if (template) state.templateId = extractDocId(template.url);
+$("startAnalysis").addEventListener("click", () => {
+  if (state.templateChoice === null) return;
+  startAnalysis(state.templates[state.templateChoice]);
 });
 
 $("selectSupported").addEventListener("click", () => {
